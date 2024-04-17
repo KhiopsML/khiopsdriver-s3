@@ -3,12 +3,11 @@
 #include <stdlib.h>
 #include <string.h>
 
-#ifdef __unix__
+#if defined(__unix__) || defined(__unix) || \
+        (defined(__APPLE__) && defined(__MACH__))
 #include <unistd.h>
 #include <dlfcn.h>
-#endif
-
-#ifndef __unix__
+#else
 #include <windows.h>
 #include "errhandlingapi.h"
 #endif
@@ -62,7 +61,8 @@ int main(int argc, char* argv[])
 	if (!library_handle)
 	{
 		fprintf(stderr, "Error while loading library %s", argv[1]);
-#ifdef __unix__
+#if defined(__unix__) || defined(__unix) || \
+        (defined(__APPLE__) && defined(__MACH__))
 		fprintf(stderr, " (%s). ", dlerror());
 #else
 		fwprintf(stderr, L" (0x%x). ", GetLastError());
@@ -158,7 +158,8 @@ void* load_shared_library(const char* library_name)
 #if defined(WIN32)
 	void* handle = (void*)LoadLibrary(library_name);
 	return handle;
-#elif defined(__unix__)
+#elif defined(__unix__) || defined(__unix) || \
+        (defined(__APPLE__) && defined(__MACH__))
 	return dlopen(library_name, RTLD_NOW);
 #endif
 }
@@ -167,7 +168,8 @@ int free_shared_library(void* library_handle)
 {
 #if defined(_MSC_VER) | defined(_WIN32)
 	return FreeLibrary((HINSTANCE)library_handle);
-#elif defined(__unix__)
+#elif defined(__unix__) || defined(__unix) || \
+        (defined(__APPLE__) && defined(__MACH__))
 	return dlclose(library_handle);
 #endif
 }
@@ -177,13 +179,15 @@ void* get_shared_library_function(void* library_handle, const char* function_nam
 	void* ptr;
 #if defined(WIN32)
 	ptr = (void*)GetProcAddress((HINSTANCE)library_handle, function_name);
-#elif defined(__unix__)
+#elif defined(__unix__) || defined(__unix) || \
+        (defined(__APPLE__) && defined(__MACH__))
 	ptr = dlsym(library_handle, function_name);
 #endif
 	if (ptr == NULL && mandatory)
 	{
 		global_error = 1;
-#ifdef __unix__
+#if defined(__unix__) || defined(__unix) || \
+        (defined(__APPLE__) && defined(__MACH__))
 		fprintf(stderr, "Unable to load %s (%s)\n", function_name, dlerror());
 #else
 		fprintf(stderr, "Unable to load %s", function_name);
