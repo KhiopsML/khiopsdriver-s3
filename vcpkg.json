@@ -1,6 +1,6 @@
 {
-    "name": "setup-cpp-vcpkg",
-    "version-string": "unversioned",
+    "name": "gcs-driver",
+    "version-string": "latest",
     "description": "Setting up C++ for Google Cloud with CMake and vcpkg",
     "dependencies": [
         {"name": "re2"},
