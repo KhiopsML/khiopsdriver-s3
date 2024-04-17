@@ -20,5 +20,5 @@ add_library(khiopsdriver_file_gcs MODULE src/gcsplugin.cpp)
 add_executable(KhiopsPluginTest src/main.cpp)
 
 target_link_libraries(khiopsdriver_file_gcs
-    PRIVATE google-cloud-cpp::storage
-    PRIVATE spdlog::spdlog)
+    PUBLIC google-cloud-cpp::storage
+    PUBLIC spdlog::spdlog)
