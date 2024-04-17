@@ -3,16 +3,8 @@
     "version-string": "latest",
     "description": "Setting up C++ for Google Cloud with CMake and vcpkg",
     "dependencies": [
-        {"name": "re2"},
         {"name": "google-cloud-cpp", "default-features": false, "features": ["storage"]},
         {"name": "spdlog"}
-    ],
-  "overrides": [
-    {
-      "name": "re2",
-      "version": "2023-07-01"
-    }
-  ],
-  "builtin-baseline": "582a4de14bef91df217f4f49624cf5b2b04bd7ca"
+    ]
 }
 
