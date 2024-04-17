@@ -10,6 +10,6 @@ find_package(spdlog REQUIRED)
 
 
 add_library(khiopsdriver_file_gcs SHARED src/gcsplugin.cpp)
-add_executable(KhiopsPluginTest src/main.cpp)
+add_executable(KhiopsPluginTest WIN32 MACOSX_BUNDLE src/main.cpp)
 
 target_link_libraries(khiopsdriver_file_gcs PRIVATE google-cloud-cpp::storage PRIVATE spdlog::spdlog)
