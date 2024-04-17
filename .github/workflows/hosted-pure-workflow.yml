@@ -30,7 +30,7 @@ jobs:
         os: [ubuntu-latest, macos-latest, windows-latest]
         include:
           - os: windows-latest
-            triplet: x64-windows
+            triplet: x64-windows-static
           - os: ubuntu-latest
             triplet: x64-linux
           - os: macos-latest
@@ -45,6 +45,9 @@ jobs:
       VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}/vcpkg/bincache
       # Let's use GitHub Action cache as storage for the vcpkg Binary Caching feature.
       VCPKG_BINARY_SOURCES: 'clear;x-gha,readwrite'
+      # Allow setting triplet to something else than platform's default
+      VCPKG_DEFAULT_TRIPLET: ${{ matrix.triplet }} 
+
 
     steps:
     # Set env vars needed for vcpkg to leverage the GitHub Action cache as a storage
