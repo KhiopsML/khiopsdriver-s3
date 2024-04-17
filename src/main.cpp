@@ -155,13 +155,7 @@ void usage()
 
 void* load_shared_library(const char* library_name)
 {
-#if defined(_MSC_VER)
-	wchar_t* wString = new wchar_t[4096];
-	MultiByteToWideChar(CP_ACP, 0, library_name, -1, wString, 4096);
-	void* handle = (void*)LoadLibrary(wString);
-	delete[] wString;
-	return handle;
-#elif defined(_WIN32)
+#if defined(WIN32)
 	void* handle = (void*)LoadLibrary(library_name);
 	return handle;
 #elif defined(__unix__)
@@ -181,7 +175,7 @@ int free_shared_library(void* library_handle)
 void* get_shared_library_function(void* library_handle, const char* function_name, int mandatory)
 {
 	void* ptr;
-#if defined(_MSC_VER) | defined(_WIN32)
+#if defined(WIN32)
 	ptr = (void*)GetProcAddress((HINSTANCE)library_handle, function_name);
 #elif defined(__unix__)
 	ptr = dlsym(library_handle, function_name);
