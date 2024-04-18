@@ -242,7 +242,6 @@ void *driver_fopen(const char *filename, char mode)
     ParseGcsUri(filename, bucket_name, object_name);
     FallbackToDefaultBucket(bucket_name);
 	assert(driver_isConnected());
-	assert((mode == 'r' or mode == 'w' or mode == 'a'));
 
     auto h = new MultiPartFile;
     h->bucketname = bucket_name;
