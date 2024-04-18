@@ -17,7 +17,28 @@ find_package(spdlog REQUIRED)
 find_package(Threads)
 
 add_library(khiopsdriver_file_gcs MODULE src/gcsplugin.cpp)
-add_executable(KhiopsPluginTest src/main.cpp)
+add_executable(KhiopsPluginTest src/khiopsplugintest.cpp)
+
 
 target_link_libraries(khiopsdriver_file_gcs
     PRIVATE google-cloud-cpp::storage spdlog::spdlog Threads::Threads)
+
+# Debugging WIN compilation
+add_executable(MainTest src/maintest.cpp)
+
+# Enforce c++11 standard.
+set (CMAKE_CXX_STANDARD 11)
+
+add_executable(Demo src/main.cpp src/version.h)
+set(MODULE_FILES
+	src/d-hello.cpp
+	src/d-hello.h
+	src/dlib_export.h
+)
+add_library(DLib SHARED ${MODULE_FILES})
+
+# Demo application requires library, so add it
+target_link_libraries(Demo
+	DLib
+)
+

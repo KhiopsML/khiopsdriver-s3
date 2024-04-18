@@ -2,11 +2,12 @@
 #include <sys/types.h>
 #include <cstdlib>
 
-#if defined(_MSC_VER) | defined(_WIN32)
+#if defined(__unix__) || defined(__unix) || \
+        (defined(__APPLE__) && defined(__MACH__))
+#define VISIBLE __attribute__((visibility("default")))
+#else
 /* Windows Visual C++ only */
 #define VISIBLE __declspec(dllexport)
-#else
-#define VISIBLE __attribute__((visibility("default")))
 #endif
 
 /* Use of C linkage from C++ */
