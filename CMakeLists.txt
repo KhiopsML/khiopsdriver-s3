@@ -12,7 +12,7 @@ cmake_minimum_required(VERSION 3.20)
 # Enforce c++17 standard.
 set (CMAKE_CXX_STANDARD 17)
 
-project(khiops-gcs)
+project(khiops-gcs LANGUAGES CXX)
 
 # Find dependencies provided by vcpkg (via vcpkg.cmake)
 find_package(fmt CONFIG REQUIRED)
@@ -31,6 +31,10 @@ target_link_libraries(KhiopsPluginTest PRIVATE fmt::fmt)
 add_library(khiopsdriver_file_gcs2 MODULE src/gcsplugin2.cpp)
 target_link_libraries(khiopsdriver_file_gcs2
 PRIVATE CURL::libcurl google-cloud-cpp::storage google-cloud-cpp::storage_protos google-cloud-cpp::experimental-storage-grpc spdlog::spdlog_header_only)
+
+add_executable(drivertest src/drivertest.cpp src/libraryloader.h src/libraryloader.cpp)
+target_link_libraries(drivertest dl)
+
 
 
 # Debugging WIN compilation

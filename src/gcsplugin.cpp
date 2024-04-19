@@ -9,11 +9,9 @@
 #include <fstream>
 #include <iostream>
 
-#define str(s) #s
-#define VERSION str(0.1.0)
-
-const char* driver_name = "GCS driver";
-const char* driver_scheme = "gs";
+static const char* version = "0.1.0";
+static const char* driver_name = "GCS driver";
+static const char* driver_scheme = "gs";
 
 int bIsConnected = false;
 google::cloud::storage::Client client;
@@ -79,13 +77,13 @@ bool UploadBufferToGcs(const std::string& bucket_name,
 bool ParseGcsUri(const std::string& gcs_uri, std::string& bucket_name, std::string& object_name) {
     const std::string prefix = "gs://";
     if (gcs_uri.compare(0, prefix.size(), prefix) != 0) {
-        std::cerr << "Invalid GCS URI: " << gcs_uri << "\n";
+        spdlog::error("Invalid GCS URI: {}", gcs_uri);
         return false;
     }
 
     std::size_t pos = gcs_uri.find('/', prefix.size());
     if (pos == std::string::npos) {
-        std::cerr << "Invalid GCS URI, missing object name: " << gcs_uri << "\n";
+        spdlog::error("Invalid GCS URI, missing object name: {}", gcs_uri);
         return false;
     }
 
@@ -121,7 +119,7 @@ const char *driver_getDriverName()
 
 const char *driver_getVersion()
 {
-	return VERSION;
+	return version;
 }
 
 const char *driver_getScheme()
@@ -181,7 +179,10 @@ int driver_exist(const char *filename)
 {
     spdlog::debug("exist {}", filename);
 
-    std::string file_uri = str(filename);
+    std::string file_uri = filename;
+    spdlog::debug("exist file_uri {}", file_uri);
+    spdlog::debug("exist last char {}", file_uri.back());
+
     if (file_uri.back() == '/') {
         return driver_dirExists(filename);
     } else {
