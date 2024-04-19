@@ -32,8 +32,8 @@ add_library(khiopsdriver_file_gcs2 MODULE src/gcsplugin2.cpp)
 target_link_libraries(khiopsdriver_file_gcs2
 PRIVATE CURL::libcurl google-cloud-cpp::storage google-cloud-cpp::storage_protos google-cloud-cpp::experimental-storage-grpc spdlog::spdlog_header_only)
 
-add_executable(drivertest src/drivertest.cpp src/libraryloader.h src/libraryloader.cpp)
-target_link_libraries(drivertest dl)
+#add_executable(drivertest src/drivertest.cpp src/libraryloader.h src/libraryloader.cpp)
+#target_link_libraries(drivertest dl)
 
 
 
