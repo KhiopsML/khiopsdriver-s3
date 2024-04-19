@@ -9,25 +9,23 @@ if(DEFINED ENV{VCPKG_DEFAULT_TRIPLET} AND NOT DEFINED VCPKG_TARGET_TRIPLET)
 endif()
 
 cmake_minimum_required(VERSION 3.20)
+# Enforce c++11 standard.
+set (CMAKE_CXX_STANDARD 11)
+
 project(khiops-gcs)
 
 # Find dependencies provided by vcpkg (via vcpkg.cmake)
 find_package(google_cloud_cpp_storage CONFIG REQUIRED)
-find_package(spdlog REQUIRED)
+find_package(spdlog CONFIG REQUIRED)
 
 add_library(khiopsdriver_file_gcs MODULE src/gcsplugin.cpp)
 add_executable(KhiopsPluginTest src/khiopsplugintest.cpp)
 
-target_link_libraries(KhiopsPluginTest PRIVATE dl)
-
 target_link_libraries(khiopsdriver_file_gcs
-    PRIVATE google-cloud-cpp::storage spdlog::spdlog_header_only)
+    PUBLIC google-cloud-cpp::storage PRIVATE spdlog::spdlog_header_only)
 
 # Debugging WIN compilation
 add_executable(MainTest src/maintest.cpp)
-
-# Enforce c++11 standard.
-set (CMAKE_CXX_STANDARD 11)
 
 add_executable(Demo src/main.cpp src/version.h)
 set(MODULE_FILES
