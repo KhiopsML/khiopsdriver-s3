@@ -22,7 +22,7 @@ add_library(khiopsdriver_file_gcs MODULE src/gcsplugin.cpp)
 add_executable(KhiopsPluginTest src/khiopsplugintest.cpp)
 
 target_link_libraries(khiopsdriver_file_gcs
-    PUBLIC google-cloud-cpp::storage PRIVATE spdlog::spdlog_header_only)
+PRIVATE CURL::libcurl google-cloud-cpp::storage google-cloud-cpp::storage_protos google-cloud-cpp::experimental-storage-grpc spdlog::spdlog_header_only)
 
 # Debugging WIN compilation
 add_executable(MainTest src/maintest.cpp)
