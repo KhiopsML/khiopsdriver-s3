@@ -70,11 +70,11 @@ int main(int argc, char* argv[])
 	library_handle = load_shared_library(argv[1]);
 	if (!library_handle)
 	{
-		std::cerr << fmt::format("Error while loading library {}\n", argv[1]);
+		std::cerr << fmt::format("Error while loading library {}", argv[1]);
 #ifdef __unix_or_mac__
-		std::cerr << fmt::format(" (%s).\n", dlerror());
+		std::cerr << fmt::format(" ({}).\n", dlerror());
 #else
-		std::cerr << fmt::format(" (0x%x).\n", GetLastError());
+		std::cerr << fmt::format(" ({}).\n", GetLastError());
 #endif
 		std::cerr << "Check LD_LIBRARY_PATH or set the library with its full path\n";
 		exit(EXIT_FAILURE);
@@ -194,10 +194,9 @@ void* get_shared_library_function(void* library_handle, const char* function_nam
 	{
 		global_error = 1;
 #ifdef __unix_or_mac__
-		std::cerr << fmt::format("Unable to load %s (%s)\n", function_name, dlerror());
+		std::cerr << fmt::format("Unable to load {} ({})\n", function_name, dlerror());
 #else
-		std::cerr << fmt::format("Unable to load %s", function_name);
-		std::cerr << fmt::format("(0x%x)\n", GetLastError());
+		std::cerr << fmt::format("Unable to load {} ({})\n", function_name, GetLastError());
 #endif
 	}
 	return ptr;

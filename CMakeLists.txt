@@ -19,7 +19,7 @@ find_package(fmt CONFIG REQUIRED)
 find_package(google_cloud_cpp_storage CONFIG REQUIRED)
 find_package(spdlog CONFIG REQUIRED)
 
-add_library(khiopsdriver_file_gcs MODULE src/gcsplugin.cpp)
+add_library(khiopsdriver_file_gcs MODULE src/gcsplugin.h src/gcsplugin.cpp)
 
 target_link_libraries(khiopsdriver_file_gcs
 PRIVATE CURL::libcurl google-cloud-cpp::storage google-cloud-cpp::storage_protos google-cloud-cpp::experimental-storage-grpc spdlog::spdlog_header_only)

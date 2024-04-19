@@ -98,9 +98,10 @@ bool ParseGcsUri(const std::string& gcs_uri, std::string& bucket_name, std::stri
 void FallbackToDefaultBucket(std::string& bucket_name) {
     if (!bucket_name.empty())
         return;
-    if (!globalBucketName.empty())
+    if (!globalBucketName.empty()) {
         bucket_name = globalBucketName;
-    
+        return;
+    }
     spdlog::critical("No bucket specified, and GCS_BUCKET_NAME is not set!");
 }
 
@@ -180,7 +181,7 @@ int driver_exist(const char *filename)
 {
     spdlog::debug("exist {}", filename);
 
-    std::string file_uri = filename;
+    std::string file_uri = str(filename);
     if (file_uri.back() == '/') {
         return driver_dirExists(filename);
     } else {
