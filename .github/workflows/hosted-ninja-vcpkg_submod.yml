@@ -70,8 +70,8 @@ jobs:
         uses: lukka/run-cmake@v10
         with:
           configurePreset: 'ninja-multi-vcpkg'
-          #buildPreset: 'ninja-vcpkg-release'
-          buildPreset: 'ninja-vcpkg-debug'
+          buildPreset: 'ninja-vcpkg-release'
+          #buildPreset: 'ninja-vcpkg-debug'
           testPreset: 'test-release'
 
       - name: List $RUNNER_WORKSPACE after build
@@ -82,5 +82,5 @@ jobs:
         uses: actions/upload-artifact@v3
         with:
           name: binary-${{ matrix.os }}
-          #path: builds/ninja-multi-vcpkg/Release/*
-          path: builds/ninja-multi-vcpkg/Debug/*
+          path: builds/ninja-multi-vcpkg/Release/*
+          #path: builds/ninja-multi-vcpkg/Debug/*

@@ -14,14 +14,14 @@ project(khiops-gcs)
 # Find dependencies provided by vcpkg (via vcpkg.cmake)
 find_package(google_cloud_cpp_storage CONFIG REQUIRED)
 find_package(spdlog REQUIRED)
-find_package(Threads)
 
 add_library(khiopsdriver_file_gcs MODULE src/gcsplugin.cpp)
 add_executable(KhiopsPluginTest src/khiopsplugintest.cpp)
 
+target_link_libraries(KhiopsPluginTest PRIVATE dl)
 
 target_link_libraries(khiopsdriver_file_gcs
-    PRIVATE google-cloud-cpp::storage spdlog::spdlog Threads::Threads)
+    PRIVATE google-cloud-cpp::storage spdlog::spdlog_header_only)
 
 # Debugging WIN compilation
 add_executable(MainTest src/maintest.cpp)

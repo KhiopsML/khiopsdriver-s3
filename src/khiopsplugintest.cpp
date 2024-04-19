@@ -4,7 +4,13 @@
 #include <string.h>
 
 #if defined(__unix__) || defined(__unix) || \
-        (defined(__APPLE__) && defined(__MACH__))
+    (defined(__APPLE__) && defined(__MACH__))
+#define __unix_or_mac__
+#else
+#define __windows__
+#endif
+
+#ifdef __unix_or_mac__
 #include <unistd.h>
 #include <dlfcn.h>
 #else
@@ -61,8 +67,7 @@ int main(int argc, char* argv[])
 	if (!library_handle)
 	{
 		fprintf(stderr, "Error while loading library %s", argv[1]);
-#if defined(__unix__) || defined(__unix) || \
-        (defined(__APPLE__) && defined(__MACH__))
+#ifdef __unix_or_mac__
 		fprintf(stderr, " (%s). ", dlerror());
 #else
 		fwprintf(stderr, L" (0x%x). ", GetLastError());
@@ -155,21 +160,19 @@ void usage()
 
 void* load_shared_library(const char* library_name)
 {
-#if defined(WIN32)
+#ifdef __windows__
 	void* handle = (void*)LoadLibrary(library_name);
 	return handle;
-#elif defined(__unix__) || defined(__unix) || \
-        (defined(__APPLE__) && defined(__MACH__))
+#elif defined(__unix_or_mac__)
 	return dlopen(library_name, RTLD_NOW);
 #endif
 }
 
 int free_shared_library(void* library_handle)
 {
-#if defined(_MSC_VER) | defined(_WIN32)
+#ifdef __windows__
 	return FreeLibrary((HINSTANCE)library_handle);
-#elif defined(__unix__) || defined(__unix) || \
-        (defined(__APPLE__) && defined(__MACH__))
+#elif defined(__unix_or_mac__)
 	return dlclose(library_handle);
 #endif
 }
@@ -177,17 +180,15 @@ int free_shared_library(void* library_handle)
 void* get_shared_library_function(void* library_handle, const char* function_name, int mandatory)
 {
 	void* ptr;
-#if defined(WIN32)
+#ifdef __windows__
 	ptr = (void*)GetProcAddress((HINSTANCE)library_handle, function_name);
-#elif defined(__unix__) || defined(__unix) || \
-        (defined(__APPLE__) && defined(__MACH__))
+#elif defined(__unix_or_mac__)
 	ptr = dlsym(library_handle, function_name);
 #endif
 	if (ptr == NULL && mandatory)
 	{
 		global_error = 1;
-#if defined(__unix__) || defined(__unix) || \
-        (defined(__APPLE__) && defined(__MACH__))
+#ifdef __unix_or_mac__
 		fprintf(stderr, "Unable to load %s (%s)\n", function_name, dlerror());
 #else
 		fprintf(stderr, "Unable to load %s", function_name);
@@ -244,12 +245,9 @@ void test_read(const char* file_name_input, void* file, long long int maxBytes=3
 void do_test(const char* file_name_input, const char* file_name_output, const char* file_name_local)
 {
 	printf("Starting test\n");
-	fflush(NULL); 
 	// Basic information of the scheme
 	printf("scheme: %s\n", ptr_driver_getScheme());
-	fflush(NULL); 
 	printf("is read-only: %d\n", ptr_driver_isReadOnly());
-	fflush(NULL); 
 
 /*
 	// Check existence of directory

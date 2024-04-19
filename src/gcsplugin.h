@@ -3,7 +3,13 @@
 #include <cstdlib>
 
 #if defined(__unix__) || defined(__unix) || \
-        (defined(__APPLE__) && defined(__MACH__))
+    (defined(__APPLE__) && defined(__MACH__))
+#define __unix_or_mac__
+#else
+#define __windows__
+#endif
+
+#ifdef __unix_or_mac__ 
 #define VISIBLE __attribute__((visibility("default")))
 #else
 /* Windows Visual C++ only */
