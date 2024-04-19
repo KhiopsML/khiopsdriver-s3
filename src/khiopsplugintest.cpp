@@ -1,7 +1,11 @@
 
-#include <stdio.h>
+/*#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+*/
+#include <iostream>
+#include <cassert>
+#include <fmt/core.h>
 
 #if defined(__unix__) || defined(__unix) || \
     (defined(__APPLE__) && defined(__MACH__))
@@ -66,13 +70,13 @@ int main(int argc, char* argv[])
 	library_handle = load_shared_library(argv[1]);
 	if (!library_handle)
 	{
-		fprintf(stderr, "Error while loading library %s", argv[1]);
+		std::cerr << fmt::format("Error while loading library {}\n", argv[1]);
 #ifdef __unix_or_mac__
-		fprintf(stderr, " (%s). ", dlerror());
+		std::cerr << fmt::format(" (%s).\n", dlerror());
 #else
-		fwprintf(stderr, L" (0x%x). ", GetLastError());
+		std::cerr << fmt::format(" (0x%x).\n", GetLastError());
 #endif
-		fprintf(stderr, "Check LD_LIBRARY_PATH or set the library with its full path\n");
+		std::cerr << "Check LD_LIBRARY_PATH or set the library with its full path\n";
 		exit(EXIT_FAILURE);
 	}
 
@@ -110,7 +114,7 @@ int main(int argc, char* argv[])
 	if (!global_error)
 	{
 		// Call 2 simple functions
-		printf("Test of the driver library '%s' version %s handling scheme %s\n", ptr_driver_getDriverName(), ptr_driver_getVersion(), ptr_driver_getScheme());
+		std::cout << fmt::format("Test of the driver library '{}' version {} handling scheme {}\n", ptr_driver_getDriverName(), ptr_driver_getVersion(), ptr_driver_getScheme());
 
 		// Connection to the file system
 		bool bIsconnected = ptr_driver_connect();
@@ -119,16 +123,16 @@ int main(int argc, char* argv[])
 			if (!ptr_driver_isConnected())
 			{
 				global_error = 1;
-				fprintf(stderr, "ERROR : connection is done but driver is not connected\n");
+				std::cerr << "ERROR : connection is done but driver is not connected\n";
 			}
 			if (!ptr_driver_exist(argv[2]))
 			{
-				fprintf(stderr, "ERROR : %s is missing\n", argv[2]);
+				std::cerr << fmt::format("ERROR : {} is missing\n", argv[2]);
 				global_error = 1;
 			}
 			// The real test begins here (global_error is set to 1 in case of errors)
 			if (!global_error) {
-				printf("Test begins\n");
+				std::cout << "Test begins\n";
 				do_test(argv[2], argv[3], argv[4]);
 			}
 			ptr_driver_disconnect();
@@ -136,17 +140,17 @@ int main(int argc, char* argv[])
 		else
 		{
 			global_error = 1;
-			fprintf(stderr, "ERROR : unable to connect to the file system\n");
+			std::cerr << "ERROR : unable to connect to the file system\n";
 		}
 	}
 
 	free_shared_library(library_handle);
 	if (global_error)
 	{
-		printf("Test has failed\n");
+		std::cerr << "Test has failed\n";
 		exit(EXIT_FAILURE);
 	}
-	printf("! Test is successful !\n");
+	std::cout << "! Test is successful !\n";
 	exit(EXIT_SUCCESS);
 }
 
@@ -154,8 +158,8 @@ int main(int argc, char* argv[])
 
 void usage()
 {
-	fprintf(stderr, "Usage : drivertest libraryname input_filename output_filename local_filename\n");
-	fprintf(stderr, "example : drivertest ./libkhiopsdriver_file_gcs.so gs:///input_filename gs:///output_filename /tmp/copy.txt\n");
+	std::cerr << "Usage : drivertest libraryname input_filename output_filename local_filename\n";
+	std::cerr << "example : drivertest ./libkhiopsdriver_file_gcs.so gs:///input_filename gs:///output_filename /tmp/copy.txt\n";
 	exit(EXIT_FAILURE);
 }
 
@@ -190,10 +194,10 @@ void* get_shared_library_function(void* library_handle, const char* function_nam
 	{
 		global_error = 1;
 #ifdef __unix_or_mac__
-		fprintf(stderr, "Unable to load %s (%s)\n", function_name, dlerror());
+		std::cerr << fmt::format("Unable to load %s (%s)\n", function_name, dlerror());
 #else
-		fprintf(stderr, "Unable to load %s", function_name);
-		fwprintf(stderr, L"(0x%x)\n", GetLastError());
+		std::cerr << fmt::format("Unable to load %s", function_name);
+		std::cerr << fmt::format("(0x%x)\n", GetLastError());
 #endif
 	}
 	return ptr;
@@ -213,30 +217,30 @@ void test_read(const char* file_name_input, void* file, long long int maxBytes=3
 		int toRead = maxBytes - totalRead;
 		if (toRead > nBufferSize) toRead = nBufferSize;
 		sizeRead = ptr_driver_fread(&buffer, sizeof(char), toRead, file);
-		printf("Read = %lld, total = %lld, max = %lld\n", sizeRead, totalRead, maxBytes);
+		std::cout << fmt::format("Read = {}, total = {}, max = {}\n", sizeRead, totalRead, maxBytes);
 
 		// Message d'erreur si necessaire
 		if (sizeRead == 0)
 		{
 			global_error = 1;
-			printf("error while reading %s : %s\n", file_name_input, ptr_driver_getlasterror());
+			std::cout << fmt::format("error while reading {} : {}\n", file_name_input, ptr_driver_getlasterror());
 		}
 		// Affichage du contenu dans la console sinon
 		else
 		{
 			// Debug
 			/*for (int i=0; i<10 && i<sizeRead; i++) {
-				printf("%d ", buffer[i]);
+				std::cout << fmt::format("{} ", buffer[i]);
 			}
-			printf("\n");*/
+			std::cout << fmt::format("\n");*/
 			buffer[sizeRead] = '\0';
-			printf("Buffer = %s", buffer);
+			std::cout << fmt::format("Buffer = {}", buffer);
 			totalRead += sizeRead;
 
 			// Arret quand on a atteint la limite
 			if (totalRead > maxTotalRead)
 			{
-				printf("\n");
+				std::cout << fmt::format("\n");
 				break;
 			}
 		}
@@ -245,48 +249,51 @@ void test_read(const char* file_name_input, void* file, long long int maxBytes=3
 
 void do_test(const char* file_name_input, const char* file_name_output, const char* file_name_local)
 {
-	printf("Starting test\n");
+	std::cout << fmt::format("Starting test\n");
 	// Basic information of the scheme
-	printf("scheme: %s\n", ptr_driver_getScheme());
-	printf("is read-only: %d\n", ptr_driver_isReadOnly());
+	std::cout << fmt::format("scheme: {}\n", ptr_driver_getScheme());
+	std::cout << fmt::format("is read-only: {}\n", ptr_driver_isReadOnly());
 
 /*
 	// Check existence of directory
 	int res = ptr_driver_exist("tmp/");
 	if (res == 0) {
-		printf("directory does not exit\n");
+		std::cout << fmt::format("directory does not exit\n");
 	} else {
-		printf("directory exits\n");
+		std::cout << fmt::format("directory exits\n");
 	}
 */
 
 	// Checks size of input file
 	long long int filesize = ptr_driver_getFileSize(file_name_input);
-	printf("size of %s is %lld\n", file_name_input, filesize);
+	std::cout << fmt::format("size of {} is {}\n", file_name_input, filesize);
 
 	// Opens for read
 	void* file = ptr_driver_fopen(file_name_input, 'r');
 	if (file == NULL)
 	{
-		printf("error : %s : %s\n", file_name_input, ptr_driver_getlasterror());
+		std::cout << fmt::format("error : {} : {}\n", file_name_input, ptr_driver_getlasterror());
 		global_error = 1;
 		return;
 	}
 
 	// Show small extract if the driver is not read-only
-	printf("Test read from start\n\n");
+	std::cout << "Test read from start\n\n";
 	test_read(file_name_input, file, filesize);
 	
-	printf("Test read from offset 3\n\n");
-	ptr_driver_fseek(file, 3, SEEK_SET);
-	test_read(file_name_input, file, filesize-3);
+	auto offset = 3;
+	std::cout << fmt::format("Test read from offset {}\n\n", offset);
+	ptr_driver_fseek(file, offset, SEEK_SET);
+	test_read(file_name_input, file, filesize-offset);
 	
-	printf("Test read from end -20\n\n");
-	ptr_driver_fseek(file, -20, SEEK_END);
+	offset = -20;
+	std::cout << fmt::format("Test read from end {}\n\n", offset);
+	ptr_driver_fseek(file, offset, SEEK_END);
 	test_read(file_name_input, file, 20);
 	
-	printf("Test read from current offset -40\n\n");
-	ptr_driver_fseek(file, -40, SEEK_CUR);
+	offset = -40;
+	std::cout << fmt::format("Test read from current offset {}\n\n", offset);
+	ptr_driver_fseek(file, offset, SEEK_CUR);
 	test_read(file_name_input, file, 40);
 	//ptr_driver_fclose(file);
 	
@@ -295,12 +302,12 @@ void do_test(const char* file_name_input, const char* file_name_output, const ch
 	// Opens for write if the driver is not read-only
 	if (!ptr_driver_isReadOnly())
 	{
-		printf("Writing test\n\n");
+		std::cout << "Writing test\n\n";
 
 		void* fileoutput = ptr_driver_fopen(file_name_output, 'w');
 		if (fileoutput == NULL)
 		{
-			printf("error : %s : %s\n", file_name_output, ptr_driver_getlasterror());
+			std::cout << fmt::format("error : {} : {}\n", file_name_output, ptr_driver_getlasterror());
 			global_error = 1;
 		}
 		if (!global_error)
@@ -319,20 +326,20 @@ void do_test(const char* file_name_input, const char* file_name_output, const ch
 				int toRead = filesize - totalRead;
 				if (toRead > nBufferSize) toRead = nBufferSize;
 				sizeRead = ptr_driver_fread(buffer, sizeof(char), toRead, file);
-				printf("Read = %lld, total = %lld, max = %lld\n", sizeRead, totalRead, filesize);
+				std::cout << fmt::format("Read = {}, total = {}, max = {}\n", sizeRead, totalRead, filesize);
 				if (sizeRead == -1)
 				{
 					global_error = 1;
-					printf("error while reading %s : %s\n", file_name_input, ptr_driver_getlasterror());
+					std::cout << fmt::format("error while reading {} : {}\n", file_name_input, ptr_driver_getlasterror());
 				}
 				else
 				{
 					sizeWrite = ptr_driver_fwrite(buffer, sizeof(char), (size_t)sizeRead, fileoutput);
-					printf("sizeWrite = %lld\n", sizeWrite);
+					std::cout << fmt::format("sizeWrite = {}\n", sizeWrite);
 					if (sizeWrite == -1)
 					{
 						global_error = 1;
-						printf("error while writing %s : %s\n", file_name_output, ptr_driver_getlasterror());
+						std::cout << fmt::format("error while writing {} : {}\n", file_name_output, ptr_driver_getlasterror());
 					}
 					totalRead += sizeRead;
 				}
@@ -345,19 +352,19 @@ void do_test(const char* file_name_input, const char* file_name_output, const ch
 		if (!global_error)
 		{
 			long long int filesize_output = ptr_driver_getFileSize(file_name_output);
-			printf("size of %s is %lld\n", file_name_output, filesize_output);
+			std::cout << fmt::format("size of {} is {}\n", file_name_output, filesize_output);
 			if (filesize_output != filesize)
 			{
-				printf("Sizes of input and output are different\n");
+				std::cout << fmt::format("Sizes of input and output are different\n");
 				global_error = 1;
 			}
 			if (ptr_driver_exist(file_name_output))
 			{
-				printf("%s exists\n", file_name_output);
+				std::cout << fmt::format("{} exists\n", file_name_output);
 			}
 			else
 			{
-				printf("something's wrong : %s is missing\n", file_name_output);
+				std::cout << fmt::format("something's wrong : {} is missing\n", file_name_output);
 				global_error = 1;
 			}
 		}
@@ -365,12 +372,12 @@ void do_test(const char* file_name_input, const char* file_name_output, const ch
 		// Copy to local if this optional function is available in the librairy
 		if (!global_error && ptr_driver_copyToLocal != NULL)
 		{
-			printf("\n\ncopyToLocal %s to %s\n", file_name_input, file_name_local);
+			std::cout << fmt::format("\n\ncopyToLocal {} to {}\n", file_name_input, file_name_local);
 			global_error = ptr_driver_copyToLocal(file_name_input, file_name_local) == 0;
 			if (global_error)
-				printf("Error while copying : %s\n", ptr_driver_getlasterror());
+				std::cout << fmt::format("Error while copying : {}\n", ptr_driver_getlasterror());
 			else
-				printf("copy %s to local is done\n", file_name_input);
+				std::cout << fmt::format("copy {} to local is done\n", file_name_input);
 		}
 
 		// Delete file
@@ -378,10 +385,10 @@ void do_test(const char* file_name_input, const char* file_name_output, const ch
 		{
 			global_error = ptr_driver_remove(file_name_output) == 0;
 			if (global_error)
-				printf("Error while removing : %s\n", ptr_driver_getlasterror());
+				std::cout << fmt::format("Error while removing : {}\n", ptr_driver_getlasterror());
 			if (ptr_driver_exist(file_name_output))
 			{
-				printf("%s should be removed !\n", file_name_output);
+				std::cout << fmt::format("{} should be removed !\n", file_name_output);
 				global_error = 1;
 			}
 		}
@@ -389,15 +396,15 @@ void do_test(const char* file_name_input, const char* file_name_output, const ch
 		// Copy from local if this optional function is available in the librairy
 		if (!global_error && ptr_driver_copyFromLocal != NULL)
 		{
-			printf("\n\ncopyFromLocal %s to %s\n", file_name_local, file_name_output);
+			std::cout << fmt::format("\n\ncopyFromLocal {} to {}\n", file_name_local, file_name_output);
 			global_error = ptr_driver_copyFromLocal(file_name_local, file_name_output) == 0;
 			if (global_error)
-				printf("Error while copying : %s\n", ptr_driver_getlasterror());
+				std::cout << fmt::format("Error while copying : {}\n", ptr_driver_getlasterror());
 			else
-				printf("copy %s from local is done\n", file_name_local);
+				std::cout << fmt::format("copy {} from local is done\n", file_name_local);
 			if (!ptr_driver_exist(file_name_output))
 			{
-				printf("%s is missing !\n", file_name_output);
+				std::cout << fmt::format("{} is missing !\n", file_name_output);
 				global_error = 1;
 			}
 		}
