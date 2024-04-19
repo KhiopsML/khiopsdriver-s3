@@ -24,6 +24,12 @@ add_executable(KhiopsPluginTest src/khiopsplugintest.cpp)
 target_link_libraries(khiopsdriver_file_gcs
 PRIVATE CURL::libcurl google-cloud-cpp::storage google-cloud-cpp::storage_protos google-cloud-cpp::experimental-storage-grpc spdlog::spdlog_header_only)
 
+# debug lib
+add_library(khiopsdriver_file_gcs2 MODULE src/gcsplugin2.cpp)
+target_link_libraries(khiopsdriver_file_gcs2
+PRIVATE CURL::libcurl google-cloud-cpp::storage google-cloud-cpp::storage_protos google-cloud-cpp::experimental-storage-grpc spdlog::spdlog_header_only)
+
+
 # Debugging WIN compilation
 add_executable(MainTest src/maintest.cpp)
 
