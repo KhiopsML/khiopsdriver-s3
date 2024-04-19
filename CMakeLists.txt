@@ -40,3 +40,6 @@ target_link_libraries(Demo
 	DLib
 )
 
+add_executable(GCPTest src/gcptest.cpp)
+target_link_libraries(GCPTest
+PRIVATE CURL::libcurl google-cloud-cpp::storage google-cloud-cpp::storage_protos google-cloud-cpp::experimental-storage-grpc spdlog::spdlog_header_only)
