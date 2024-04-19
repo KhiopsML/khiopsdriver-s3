@@ -12,6 +12,9 @@
 #define str(s) #s
 #define VERSION str(0.1.0)
 
+const char* driver_name = "GCS driver";
+const char* driver_scheme = "gs";
+
 int bIsConnected = false;
 google::cloud::storage::Client client;
 // Global bucket name
@@ -112,7 +115,7 @@ std::string GetEnvironmentVariableOrDefault(const std::string& variable_name,
 
 const char *driver_getDriverName()
 {
-	return "GCS driver";
+	return driver_name;
 }
 
 const char *driver_getVersion()
@@ -122,7 +125,7 @@ const char *driver_getVersion()
 
 const char *driver_getScheme()
 {
-	return "gs";
+	return driver_scheme;
 }
 
 int driver_isReadOnly()
