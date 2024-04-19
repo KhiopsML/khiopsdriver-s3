@@ -13,7 +13,7 @@
 #define VERSION str(0.1.0)
 
 int bIsConnected = false;
-google::cloud::StatusOr<google::cloud::storage::Client> client;
+google::cloud::storage::Client client;
 // Global bucket name
 std::string globalBucketName = "";
 
@@ -39,7 +39,7 @@ bool DownloadFileRangeToBuffer(const std::string& bucket_name,
                                std::int64_t end_range) {
     namespace gcs = google::cloud::storage;
 
-    auto reader = client->ReadObject(bucket_name, object_name, gcs::ReadRange(start_range, end_range));
+    auto reader = client.ReadObject(bucket_name, object_name, gcs::ReadRange(start_range, end_range));
     if (!reader) {
         spdlog::error("Error reading object: {}", reader.status().message());
         return false;
@@ -60,7 +60,7 @@ bool UploadBufferToGcs(const std::string& bucket_name,
                        const char* buffer,
                        std::size_t buffer_size) {
 
-    auto writer = client->WriteObject(bucket_name, object_name);
+    auto writer = client.WriteObject(bucket_name, object_name);
     writer.write(buffer, buffer_size);
     writer.Close();
 
@@ -146,12 +146,13 @@ int driver_connect()
     globalBucketName = GetEnvironmentVariableOrDefault("GCS_BUCKET_NAME", "");
 
     namespace gcs = google::cloud::storage;
-    client = gcs::Client::CreateDefaultClient();
+    auto client_response = gcs::Client::CreateDefaultClient();
 
-    if (!client) {
-        spdlog::error("Failed to create Storage Client: {}", (int)(client.status().code()), client.status().message());
+    if (!client_response) {
+        spdlog::error("Failed to create Storage Client: {}", (int)(client_response.status().code()), client_response.status().message());
         return false;
     }
+    client = client_response.value();
     bIsConnected = true;
 	return true;
 }
@@ -192,7 +193,7 @@ int driver_fileExists(const char *sFilePathName)
     ParseGcsUri(sFilePathName, bucket_name, object_name);
     FallbackToDefaultBucket(bucket_name);
 
-    auto object_metadata = client->GetObjectMetadata(bucket_name, object_name);
+    auto object_metadata = client.GetObjectMetadata(bucket_name, object_name);
     if (object_metadata) {
         spdlog::debug("file {} exists!", sFilePathName);
         return true; // L'objet existe
@@ -212,7 +213,7 @@ int driver_dirExists(const char *sFilePathName)
 }
 
 long long int getFileSize(std::string bucket_name, std::string object_name) {
-    auto object_metadata = client->GetObjectMetadata(bucket_name, object_name);
+    auto object_metadata = client.GetObjectMetadata(bucket_name, object_name);
     if (object_metadata) {
         return object_metadata->size();
     } else if (object_metadata.status().code() == google::cloud::StatusCode::kNotFound) {
@@ -384,7 +385,7 @@ int driver_remove(const char *filename)
     ParseGcsUri(filename, bucket_name, object_name);
     FallbackToDefaultBucket(bucket_name);
 
-    auto status = client->DeleteObject(bucket_name, object_name);
+    auto status = client.DeleteObject(bucket_name, object_name);
     if (!status.ok()) {
         spdlog::error("Error deleting object: {} {}", (int)(status.code()), status.message());
         return 0;
@@ -430,7 +431,7 @@ int driver_copyToLocal(const char *sSourceFilePathName, const char *sDestFilePat
     FallbackToDefaultBucket(bucket_name);
 
     // Create a ReadObject stream
-    auto reader = client->ReadObject(bucket_name, object_name);
+    auto reader = client.ReadObject(bucket_name, object_name);
     if (!reader) {
         spdlog::error("Error initializing download stream: {} {}", (int)(reader.status().code()), reader.status().message());
         return false;
@@ -495,7 +496,7 @@ int driver_copyFromLocal(const char *sSourceFilePathName, const char *sDestFileP
     }
 
     // Create a WriteObject stream
-    auto writer = client->WriteObject(bucket_name, object_name, gcs::IfGenerationMatch(0));
+    auto writer = client.WriteObject(bucket_name, object_name, gcs::IfGenerationMatch(0));
     if (!writer) {
         spdlog::error("Error initializing upload stream: {} {}", (int)(writer.metadata().status().code()), writer.metadata().status().message());
         return false;
