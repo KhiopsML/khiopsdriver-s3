@@ -55,7 +55,7 @@ void usage();
 void* load_shared_library(const char* library_name);
 int free_shared_library(void* library_handle);
 void* get_shared_library_function(void* library_handle, const char* function_name, int mandatory);
-void do_test(const char* file_name_input, const char* file_name_output, const char* file_name_local);
+inline void do_test(const char* file_name_input, const char* file_name_output, const char* file_name_local);
 
 /* error indicator in case of error */
 int global_error = 0;
@@ -246,9 +246,9 @@ void test_read(const char* file_name_input, void* file, long long int maxBytes=3
 	}
 }
 
-void do_test(const char* file_name_input, const char* file_name_output, const char* file_name_local)
+inline void do_test(const char* file_name_input, const char* file_name_output, const char* file_name_local)
 {
-	std::cout << fmt::format("Starting test\n");
+	std::cout << fmt::format("Starting (inline) test\n");
 	// Basic information of the scheme
 	std::cout << fmt::format("scheme: {}\n", ptr_driver_getScheme());
 	std::cout << fmt::format("is read-only: {}\n", ptr_driver_isReadOnly());
