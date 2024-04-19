@@ -127,9 +127,10 @@ int main(int argc, char* argv[])
 				global_error = 1;
 			}
 			// The real test begins here (global_error is set to 1 in case of errors)
-			if (!global_error)
+			if (!global_error) {
 				printf("Test begins\n");
 				do_test(argv[2], argv[3], argv[4]);
+			}
 			ptr_driver_disconnect();
 		}
 		else
