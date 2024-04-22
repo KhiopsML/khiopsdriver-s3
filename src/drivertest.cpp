@@ -5,6 +5,12 @@
 
 #if defined(__unix__) || defined(__unix) || \
     (defined(__APPLE__) && defined(__MACH__))
+#define __unix_or_mac__
+#else
+#define __windows__
+#endif
+
+#ifdef __unix_or_mac__
 #include <unistd.h>
 #include <dlfcn.h>
 #else
@@ -280,19 +286,19 @@ void test(const char *file_name_input, const char *file_name_output, const char 
 
 void *load_shared_library(const char *library_name)
 {
-#if defined(_MSC_VER)
+#if defined(__windows__)
 	void* handle = (void*)LoadLibrary(library_name);
 	return handle;
-#elif defined(__unix__)
+#elif defined(__unix_or_mac__)
 	return dlopen(library_name, RTLD_NOW);
 #endif
 }
 
 int free_shared_library(void *library_handle)
 {
-#if defined(_MSC_VER)
+#if defined(__windows__)
 	return FreeLibrary((HINSTANCE)library_handle);
-#elif defined(__unix__)
+#elif defined(__unix_or_mac__)
 	return dlclose(library_handle);
 #endif
 }
@@ -300,15 +306,15 @@ int free_shared_library(void *library_handle)
 void *get_shared_library_function(void *library_handle, const char *function_name, int mandatory)
 {
 	void *ptr;
-#if defined(_MSC_VER)
+#if defined(__windows__)
 	ptr = (void *)GetProcAddress((HINSTANCE)library_handle, function_name);
-#elif defined(__unix__)
+#elif defined(__unix_or_mac__)
 	ptr = dlsym(library_handle, function_name);
 #endif
 	if (ptr == NULL && mandatory)
 	{
 		global_error = 1;
-#ifdef __unix__
+#ifdef __unix_or_mac__
 		fprintf(stderr, "Unable to load %s (%s)\n", function_name, dlerror());
 #else
 		fprintf(stderr, "Unable to load %s", function_name);
