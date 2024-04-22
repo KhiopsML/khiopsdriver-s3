@@ -83,7 +83,7 @@ int main(int argc, char *argv[])
 	if (!library_handle)
 	{
 		fprintf(stderr, "Error while loading library %s", argv[1]);
-#ifdef __unix__
+#ifdef __unix_or_mac__
 		fprintf(stderr, " (%s). ", dlerror());
 #else
 		fwprintf(stderr, L" (0x%x). ", GetLastError());
