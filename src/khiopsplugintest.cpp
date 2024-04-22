@@ -1,8 +1,4 @@
 
-/*#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-*/
 #include <iostream>
 #include <cassert>
 #include <fmt/core.h>
@@ -23,39 +19,41 @@
 #endif
 
 /* API functions definition, that must be defined in the library */
-const char* (*ptr_driver_getDriverName)();
-const char* (*ptr_driver_getVersion)();
-const char* (*ptr_driver_getScheme)();
+const char *(*ptr_driver_getDriverName)();
+const char *(*ptr_driver_getVersion)();
+const char *(*ptr_driver_getScheme)();
 int (*ptr_driver_isReadOnly)();
 int (*ptr_driver_connect)();
 int (*ptr_driver_disconnect)();
 int (*ptr_driver_isConnected)();
-int (*ptr_driver_exist)(const char* filename);
-long long int (*ptr_driver_getFileSize)(const char* filename);
-void* (*ptr_driver_fopen)(const char* filename, const char mode);
-int (*ptr_driver_fclose)(void* stream);
-long long int (*ptr_driver_fread)(void* ptr, size_t size, size_t count, void* stream);
-int (*ptr_driver_fseek)(void* stream, long long int offset, int whence);
-const char* (*ptr_driver_getlasterror)();
+int (*ptr_driver_fileExists)(const char *filename);
+int (*ptr_driver_dirExists)(const char *filename);
+
+long long int (*ptr_driver_getFileSize)(const char *filename);
+void *(*ptr_driver_fopen)(const char *filename, const char mode);
+int (*ptr_driver_fclose)(void *stream);
+long long int (*ptr_driver_fread)(void *ptr, size_t size, size_t count, void *stream);
+int (*ptr_driver_fseek)(void *stream, long long int offset, int whence);
+const char *(*ptr_driver_getlasterror)();
 
 /* API functions definition, that must be defined in the library only if the driver is not read-only */
-long long int (*ptr_driver_fwrite)(const void* ptr, size_t size, size_t count, void* stream);
-int (*ptr_driver_fflush)(void* stream);
-int (*ptr_driver_remove)(const char* filename);
-int (*ptr_driver_mkdir)(const char* filename);
-int (*ptr_driver_rmdir)(const char* filename);
-long long int (*ptr_driver_diskFreeSpace)(const char* filename);
+long long int (*ptr_driver_fwrite)(const void *ptr, size_t size, size_t count, void *stream);
+int (*ptr_driver_fflush)(void *stream);
+int (*ptr_driver_remove)(const char *filename);
+int (*ptr_driver_mkdir)(const char *filename);
+int (*ptr_driver_rmdir)(const char *filename);
+long long int (*ptr_driver_diskFreeSpace)(const char *filename);
 
 /* API functions definition, that can be defined optionally in the library only if the driver is not read-only */
-int (*ptr_driver_copyToLocal)(const char* sourcefilename, const char* destfilename);
-int (*ptr_driver_copyFromLocal)(const char* sourcefilename, const char* destfilename);
+int (*ptr_driver_copyToLocal)(const char *sourcefilename, const char *destfilename);
+int (*ptr_driver_copyFromLocal)(const char *sourcefilename, const char *destfilename);
 
 /* functions prototype */
 void usage();
-void* load_shared_library(const char* library_name);
-int free_shared_library(void* library_handle);
-void* get_shared_library_function(void* library_handle, const char* function_name, int mandatory);
-inline void do_test(const char* file_name_input, const char* file_name_output, const char* file_name_local);
+void *load_shared_library(const char *library_name);
+int free_shared_library(void *library_handle);
+void *get_shared_library_function(void *library_handle, const char *function_name, int mandatory);
+void do_test(const char* file_name_input, const char* file_name_output, const char* file_name_local);
 
 /* error indicator in case of error */
 int global_error = 0;
@@ -88,7 +86,8 @@ int main(int argc, char* argv[])
 	*(void**)(&ptr_driver_connect) = get_shared_library_function(library_handle, "driver_connect", 1);
 	*(void**)(&ptr_driver_disconnect) = get_shared_library_function(library_handle, "driver_disconnect", 1);
 	*(void**)(&ptr_driver_isConnected) = get_shared_library_function(library_handle, "driver_isConnected", 1);
-	*(void**)(&ptr_driver_exist) = get_shared_library_function(library_handle, "driver_exist", 1);
+	*(void**)(&ptr_driver_fileExists) = get_shared_library_function(library_handle, "driver_fileExists", 1);
+	*(void**)(&ptr_driver_dirExists) = get_shared_library_function(library_handle, "driver_dirExists", 1);
 	*(void**)(&ptr_driver_getFileSize) = get_shared_library_function(library_handle, "driver_getFileSize", 1);
 	*(void**)(&ptr_driver_fopen) = get_shared_library_function(library_handle, "driver_fopen", 1);
 	*(void**)(&ptr_driver_fclose) = get_shared_library_function(library_handle, "driver_fclose", 1);
@@ -106,7 +105,7 @@ int main(int argc, char* argv[])
 		*(void**)(&ptr_driver_rmdir) = get_shared_library_function(library_handle, "driver_rmdir", 1);
 		*(void**)(&ptr_driver_diskFreeSpace) = get_shared_library_function(library_handle, "driver_diskFreeSpace", 1);
 
-		// Bin optional functions (without setting global_error to 1 in case of errors)
+		// Bind optional functions (without setting global_error to 1 in case of errors)
 		*(void**)(&ptr_driver_copyToLocal) = get_shared_library_function(library_handle, "driver_copyToLocal", 0);
 		*(void**)(&ptr_driver_copyFromLocal) = get_shared_library_function(library_handle, "driver_copyFromLocal", 0);
 	}
@@ -125,7 +124,7 @@ int main(int argc, char* argv[])
 				global_error = 1;
 				std::cerr << "ERROR : connection is done but driver is not connected\n";
 			}
-			if (!ptr_driver_exist(argv[2]))
+			if (!ptr_driver_fileExists(argv[2]))
 			{
 				std::cerr << fmt::format("ERROR : {} is missing\n", argv[2]);
 				global_error = 1;
@@ -161,45 +160,6 @@ void usage()
 	std::cerr << "Usage : drivertest libraryname input_filename output_filename local_filename\n";
 	std::cerr << "example : drivertest ./libkhiopsdriver_file_gcs.so gs:///input_filename gs:///output_filename /tmp/copy.txt\n";
 	exit(EXIT_FAILURE);
-}
-
-void* load_shared_library(const char* library_name)
-{
-#ifdef __windows__
-	void* handle = (void*)LoadLibrary(library_name);
-	return handle;
-#elif defined(__unix_or_mac__)
-	return dlopen(library_name, RTLD_NOW);
-#endif
-}
-
-int free_shared_library(void* library_handle)
-{
-#ifdef __windows__
-	return FreeLibrary((HINSTANCE)library_handle);
-#elif defined(__unix_or_mac__)
-	return dlclose(library_handle);
-#endif
-}
-
-void* get_shared_library_function(void* library_handle, const char* function_name, int mandatory)
-{
-	void* ptr;
-#ifdef __windows__
-	ptr = (void*)GetProcAddress((HINSTANCE)library_handle, function_name);
-#elif defined(__unix_or_mac__)
-	ptr = dlsym(library_handle, function_name);
-#endif
-	if (ptr == NULL && mandatory)
-	{
-		global_error = 1;
-#ifdef __unix_or_mac__
-		std::cerr << fmt::format("Unable to load {} ({})\n", function_name, dlerror());
-#else
-		std::cerr << fmt::format("Unable to load {} ({})\n", function_name, GetLastError());
-#endif
-	}
-	return ptr;
 }
 
 void test_read(const char* file_name_input, void* file, long long int maxBytes=3000)
@@ -246,22 +206,55 @@ void test_read(const char* file_name_input, void* file, long long int maxBytes=3
 	}
 }
 
-inline void do_test(const char* file_name_input, const char* file_name_output, const char* file_name_local)
+void* load_shared_library(const char* library_name)
 {
-	std::cout << fmt::format("Starting (inline) test\n");
+#ifdef __windows__
+	wchar_t* wString = new wchar_t[4096];
+	MultiByteToWideChar(CP_ACP, 0, library_name, -1, wString, 4096);
+	void* handle = (void*)LoadLibrary(library_name);
+	delete[] wString;
+	return handle;
+#elif defined(__unix_or_mac__)
+	return dlopen(library_name, RTLD_NOW);
+#endif
+}
+
+int free_shared_library(void* library_handle)
+{
+#ifdef __windows__
+	return FreeLibrary((HINSTANCE)library_handle);
+#elif defined(__unix_or_mac__)
+	return dlclose(library_handle);
+#endif
+}
+
+void *get_shared_library_function(void *library_handle, const char *function_name, int mandatory)
+{
+	void *ptr;
+#ifdef __windows__
+	ptr = (void*)GetProcAddress((HINSTANCE)library_handle, function_name);
+#elif defined(__unix_or_mac__)
+	ptr = dlsym(library_handle, function_name);
+#endif
+	if (ptr == NULL && mandatory)
+	{
+		global_error = 1;
+#ifdef __unix_or_mac__
+		std::cerr << fmt::format("Unable to load {} ({})\n", function_name, dlerror());
+#else
+		std::cerr << fmt::format("Unable to load {} ({})\n", function_name, GetLastError());
+#endif
+	}
+	return ptr;
+}
+
+
+void do_test(const char* file_name_input, const char* file_name_output, const char* file_name_local)
+{
+	std::cout << fmt::format("Starting test\n");
 	// Basic information of the scheme
 	std::cout << fmt::format("scheme: {}\n", ptr_driver_getScheme());
 	std::cout << fmt::format("is read-only: {}\n", ptr_driver_isReadOnly());
-
-/*
-	// Check existence of directory
-	int res = ptr_driver_exist("tmp/");
-	if (res == 0) {
-		std::cout << fmt::format("directory does not exit\n");
-	} else {
-		std::cout << fmt::format("directory exits\n");
-	}
-*/
 
 	// Checks size of input file
 	long long int filesize = ptr_driver_getFileSize(file_name_input);
@@ -316,7 +309,7 @@ inline void do_test(const char* file_name_input, const char* file_name_output, c
 			//const int nBufferSize = 1024*1024;
 			const int nBufferSize = 1234*5678;
 			//const int nBufferSize = 128;
-			char buffer[nBufferSize];
+			char *buffer = new char[nBufferSize + 1];
 			long long int sizeRead = nBufferSize;
 			long long int sizeWrite;
 			long long int totalRead = 0;
@@ -343,6 +336,7 @@ inline void do_test(const char* file_name_input, const char* file_name_output, c
 					totalRead += sizeRead;
 				}
 			}
+			delete[](buffer);
 		}
 		ptr_driver_fclose(fileoutput);
 		ptr_driver_fclose(file);
@@ -357,7 +351,7 @@ inline void do_test(const char* file_name_input, const char* file_name_output, c
 				std::cout << fmt::format("Sizes of input and output are different\n");
 				global_error = 1;
 			}
-			if (ptr_driver_exist(file_name_output))
+			if (ptr_driver_fileExists(file_name_output))
 			{
 				std::cout << fmt::format("{} exists\n", file_name_output);
 			}
@@ -385,7 +379,7 @@ inline void do_test(const char* file_name_input, const char* file_name_output, c
 			global_error = ptr_driver_remove(file_name_output) == 0;
 			if (global_error)
 				std::cout << fmt::format("Error while removing : {}\n", ptr_driver_getlasterror());
-			if (ptr_driver_exist(file_name_output))
+			if (ptr_driver_fileExists(file_name_output))
 			{
 				std::cout << fmt::format("{} should be removed !\n", file_name_output);
 				global_error = 1;
@@ -401,7 +395,7 @@ inline void do_test(const char* file_name_input, const char* file_name_output, c
 				std::cout << fmt::format("Error while copying : {}\n", ptr_driver_getlasterror());
 			else
 				std::cout << fmt::format("copy {} from local is done\n", file_name_local);
-			if (!ptr_driver_exist(file_name_output))
+			if (!ptr_driver_fileExists(file_name_output))
 			{
 				std::cout << fmt::format("{} is missing !\n", file_name_output);
 				global_error = 1;

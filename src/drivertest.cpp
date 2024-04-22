@@ -2,7 +2,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "libraryloader.h"
 
 #ifdef __unix__
 #include <unistd.h>
@@ -193,7 +192,7 @@ void test(const char *file_name_input, const char *file_name_output, const char 
 	if (ptr_driver_isReadOnly())
 	{
 		// Reads the file by steps of nBufferSize and writes to the output file at each step
-		char buffer[nBufferSize + 1];
+		char *buffer = new char[nBufferSize + 1];
 		long long int sizeRead = nBufferSize;
 		const long long int maxTotalRead = 3000;
 		long long int totalRead = 0;
@@ -228,6 +227,7 @@ void test(const char *file_name_input, const char *file_name_output, const char 
 			}
 		}
 		ptr_driver_fclose(file);
+		delete[](buffer);
 	}
 	// Opens for write if the driver is not read-only
 	else
@@ -282,10 +282,7 @@ void test(const char *file_name_input, const char *file_name_output, const char 
 void *load_shared_library(const char *library_name)
 {
 #if defined(_MSC_VER)
-	wchar_t *wString = new wchar_t[4096];
-	MultiByteToWideChar(CP_ACP, 0, library_name, -1, wString, 4096);
-	void *handle = (void *)LoadLibrary(wString);
-	delete[] wString;
+	void* handle = (void*)LoadLibrary(library_name);
 	return handle;
 #elif defined(__unix__)
 	return dlopen(library_name, RTLD_NOW);
@@ -344,7 +341,7 @@ void copyFile(const char *file_name_input, const char *file_name_output)
 	if (!global_error)
 	{
 		// Reads the file by steps of nBufferSize and writes to the output file at each step
-		char buffer[nBufferSize];
+		char *buffer = new char[nBufferSize];
 		long long int sizeRead = nBufferSize;
 		long long int sizeWrite;
 		ptr_driver_fseek(fileinput, 0, SEEK_SET);
@@ -367,6 +364,7 @@ void copyFile(const char *file_name_input, const char *file_name_output)
 			}
 		}
 		ptr_driver_fclose(fileoutput);
+		delete[](buffer);
 	}
 	ptr_driver_fclose(fileinput);
 }
@@ -393,7 +391,7 @@ void copyFileWithFseek(const char *file_name_input, const char *file_name_output
 	if (!global_error)
 	{
 		// Reads the file by steps of nBufferSize and writes to the output file at each step
-		char buffer[nBufferSize];
+		char *buffer = new char[nBufferSize];
 		long long int sizeRead = nBufferSize;
 		long long int sizeWrite;
 		int cummulativeRead = 0;
@@ -419,6 +417,7 @@ void copyFileWithFseek(const char *file_name_input, const char *file_name_output
 			}
 		}
 		ptr_driver_fclose(fileoutput);
+		delete[](buffer);
 	}
 	ptr_driver_fclose(fileinput);
 }

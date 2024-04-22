@@ -27,32 +27,6 @@ PRIVATE CURL::libcurl google-cloud-cpp::storage google-cloud-cpp::storage_protos
 add_executable(KhiopsPluginTest src/khiopsplugintest.cpp)
 target_link_libraries(KhiopsPluginTest PRIVATE fmt::fmt)
 
-# debug lib
-add_library(khiopsdriver_file_gcs2 MODULE src/gcsplugin2.cpp)
-target_link_libraries(khiopsdriver_file_gcs2
-PRIVATE CURL::libcurl google-cloud-cpp::storage google-cloud-cpp::storage_protos google-cloud-cpp::experimental-storage-grpc spdlog::spdlog_header_only)
+add_executable(drivertest src/drivertest.cpp)# src/libraryloader.h src/libraryloader.cpp)
+target_link_libraries(drivertest)
 
-#add_executable(drivertest src/drivertest.cpp src/libraryloader.h src/libraryloader.cpp)
-#target_link_libraries(drivertest dl)
-
-
-
-# Debugging WIN compilation
-add_executable(MainTest src/maintest.cpp)
-
-add_executable(Demo src/main.cpp src/version.h)
-set(MODULE_FILES
-	src/d-hello.cpp
-	src/d-hello.h
-	src/dlib_export.h
-)
-add_library(DLib SHARED ${MODULE_FILES})
-
-# Demo application requires library, so add it
-target_link_libraries(Demo
-	DLib
-)
-
-add_executable(GCPTest src/gcptest.cpp)
-target_link_libraries(GCPTest
-PRIVATE CURL::libcurl google-cloud-cpp::storage google-cloud-cpp::storage_protos google-cloud-cpp::experimental-storage-grpc spdlog::spdlog_header_only)

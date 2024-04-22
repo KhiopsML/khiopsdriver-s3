@@ -32,7 +32,7 @@ struct MultiPartFile
 };
 
 // Definition of helper functions
-bool DownloadFileRangeToBuffer(const std::string& bucket_name,
+long long int DownloadFileRangeToBuffer(const std::string& bucket_name,
                                const std::string& object_name,
                                char* buffer,
                                std::size_t buffer_length,
@@ -43,17 +43,19 @@ bool DownloadFileRangeToBuffer(const std::string& bucket_name,
     auto reader = client.ReadObject(bucket_name, object_name, gcs::ReadRange(start_range, end_range));
     if (!reader) {
         spdlog::error("Error reading object: {}", reader.status().message());
-        return false;
+        return -1;
     }
-
+    
     reader.read(buffer, buffer_length);
+    long long int num_read = reader.gcount();
+    spdlog::debug("read = {}", num_read);
 
     if (reader.bad()/* || reader.fail()*/) {
         spdlog::error("Error during read: {} {}", (int)(reader.status().code()), reader.status().message());
-        return false;
+        return -1;
     }
 
-    return true;
+    return num_read;
 }
 
 bool UploadBufferToGcs(const std::string& bucket_name,
@@ -355,11 +357,12 @@ long long int driver_fread(void *ptr, size_t size, size_t count, void *stream)
     auto toRead = size * count;
     spdlog::debug("offset = {} toRead = {}", h->offset, toRead);
 
-    DownloadFileRangeToBuffer(h->bucketname, h->filename, (char*)ptr, toRead, h->offset,
+    auto num_read = DownloadFileRangeToBuffer(h->bucketname, h->filename, (char*)ptr, toRead, h->offset,
         h->offset + toRead);
 
-    h->offset += toRead;
-    return toRead;
+    if (num_read != -1)
+        h->offset += num_read;
+    return num_read;
 }
 
 long long int driver_fwrite(const void *ptr, size_t size, size_t count, void *stream)
