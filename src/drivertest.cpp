@@ -3,12 +3,11 @@
 #include <stdlib.h>
 #include <string.h>
 
-#ifdef __unix__
+#if defined(__unix__) || defined(__unix) || \
+    (defined(__APPLE__) && defined(__MACH__))
 #include <unistd.h>
 #include <dlfcn.h>
-#endif
-
-#ifndef __unix__
+#else
 #include <windows.h>
 #include "errhandlingapi.h"
 #endif
