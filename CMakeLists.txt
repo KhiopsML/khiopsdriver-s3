@@ -23,7 +23,7 @@ find_package(spdlog CONFIG REQUIRED)
 add_library(khiopsdriver_file_s3 MODULE src/s3plugin.h src/s3plugin.cpp)
 set_target_properties(khiopsdriver_file_s3 PROPERTIES LINK_FLAGS_RELEASE -s)
 target_include_directories(khiopsdriver_file_s3 PRIVATE ${AWSSDK_INCLUDE_DIRS})
-target_link_libraries(khiopsdriver_file_s3 PRIVATE ${AWSSDK_LIBRARIES} z spdlog::spdlog)
+target_link_libraries(khiopsdriver_file_s3 PRIVATE ${AWSSDK_LIBRARIES} ZLIB::ZLIB spdlog::spdlog)
 
 
 

@@ -5,7 +5,8 @@
     "dependencies": [
         {"name": "fmt"},
         {"name": "aws-sdk-cpp", "default-features": false, "features": ["s3"]},
-        {"name": "spdlog"}
+        {"name": "spdlog"},
+        {"name": "zlib"}
     ]
 }
 
