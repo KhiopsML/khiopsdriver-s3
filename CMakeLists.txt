@@ -16,12 +16,17 @@ project(khiops-gcs LANGUAGES CXX)
 
 # Find dependencies provided by vcpkg (via vcpkg.cmake)
 find_package(fmt CONFIG REQUIRED)
-find_package(google_cloud_cpp_storage CONFIG REQUIRED)
+find_package(ZLIB REQUIRED)
+find_package(AWSSDK CONFIG COMPONENTS core s3 REQUIRED)
 find_package(spdlog CONFIG REQUIRED)
 
-add_library(khiopsdriver_file_gcs MODULE src/gcsplugin.h src/gcsplugin.cpp)
-set_target_properties(khiopsdriver_file_gcs PROPERTIES LINK_FLAGS_RELEASE -s)
-target_link_libraries(khiopsdriver_file_gcs PRIVATE google-cloud-cpp::storage spdlog::spdlog)
+add_library(khiopsdriver_file_s3 MODULE src/s3plugin.h src/s3plugin.cpp)
+set_target_properties(khiopsdriver_file_s3 PROPERTIES LINK_FLAGS_RELEASE -s)
+target_include_directories(khiopsdriver_file_s3 PRIVATE ${AWSSDK_INCLUDE_DIRS})
+target_link_libraries(khiopsdriver_file_s3 PRIVATE ${AWSSDK_LIBRARIES} z spdlog::spdlog)
+
+
+
 
 add_executable(KhiopsPluginTest src/khiopsplugintest.cpp)
 target_link_libraries(KhiopsPluginTest PRIVATE fmt::fmt)

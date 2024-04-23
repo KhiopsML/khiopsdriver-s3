@@ -2,19 +2,23 @@
 #define _CRT_SECURE_NO_WARNINGS
 #endif
 
-#include "gcsplugin.h"
-#include "google/cloud/storage/client.h"
+#include "s3plugin.h"
+#include <aws/core/Aws.h>
+#include <aws/core/auth/AWSCredentials.h>
+#include <aws/s3/S3Client.h>
+#include <aws/s3/model/DeleteObjectRequest.h>
+#include <aws/s3/model/GetObjectRequest.h>
+#include <aws/s3/model/HeadObjectRequest.h>
+#include <aws/s3/model/PutObjectRequest.h>
 #include "spdlog/spdlog.h"
 #include <assert.h>
 #include <fstream>
 #include <iostream>
 
-static const char* version = "0.1.0";
-static const char* driver_name = "GCS driver";
-static const char* driver_scheme = "gs";
-
 int bIsConnected = false;
-google::cloud::storage::Client client;
+Aws::SDKOptions options;
+Aws::S3::S3Client *client = NULL;
+
 // Global bucket name
 std::string globalBucketName = "";
 
@@ -38,59 +42,80 @@ long long int DownloadFileRangeToBuffer(const std::string& bucket_name,
                                std::size_t buffer_length,
                                std::int64_t start_range,
                                std::int64_t end_range) {
-    namespace gcs = google::cloud::storage;
 
-    auto reader = client.ReadObject(bucket_name, object_name, gcs::ReadRange(start_range, end_range));
-    if (!reader) {
-        spdlog::error("Error reading object: {}", reader.status().message());
-        return -1;
+    // Configuration de la requête pour obtenir un objet
+    Aws::S3::Model::GetObjectRequest object_request;
+    object_request.WithBucket(bucket_name).WithKey(object_name);
+
+    // Définition de la plage de bytes à télécharger
+    Aws::StringStream range;
+    range << "bytes=" << start_range << "-" << end_range;
+    object_request.SetRange(range.str());
+
+    // Exécution de la requête
+    auto get_object_outcome = client->GetObject(object_request);
+    long long int num_read = -1;
+
+    if (get_object_outcome.IsSuccess()) {
+        // Téléchargement réussi, lecture des données dans le buffer
+        auto& retrieved_file = get_object_outcome.GetResultWithOwnership().GetBody();
+
+        retrieved_file.read(buffer, buffer_length);
+        num_read = retrieved_file.gcount();
+        spdlog::debug("read = {}", num_read);
+
+    } else {
+        // Gestion des erreurs
+        std::cerr << "Failed to download object: " <<
+            get_object_outcome.GetError().GetMessage() << std::endl;
+
+        num_read = -1;
     }
-    
-    reader.read(buffer, buffer_length);
-    long long int num_read = reader.gcount();
-    spdlog::debug("read = {}", num_read);
-
-    if (reader.bad()/* || reader.fail()*/) {
-        spdlog::error("Error during read: {} {}", (int)(reader.status().code()), reader.status().message());
-        return -1;
-    }
-
     return num_read;
 }
 
-bool UploadBufferToGcs(const std::string& bucket_name,
+bool UploadBuffer(const std::string& bucket_name,
                        const std::string& object_name,
                        const char* buffer,
                        std::size_t buffer_size) {
 
-    auto writer = client.WriteObject(bucket_name, object_name);
-    writer.write(buffer, buffer_size);
-    writer.Close();
+    Aws::S3::Model::PutObjectRequest request;
+    request.SetBucket(bucket_name);
+    request.SetKey(object_name);
 
-    auto status = writer.metadata();
-    if (!status) {
-        spdlog::error("Error during upload: {} {}", (int)(status.status().code()), status.status().message());
-        return false;
+    const std::shared_ptr<Aws::IOStream> inputData =
+            Aws::MakeShared<Aws::StringStream>("");
+    std::string data;
+    data.assign(buffer, buffer_size);
+    *inputData << data.c_str();
+
+
+    request.SetBody(inputData);
+
+    Aws::S3::Model::PutObjectOutcome outcome = client->PutObject(request);
+
+    if (!outcome.IsSuccess()) {
+        spdlog::error("PutObjectBuffer: {}", outcome.GetError().GetMessage());
     }
 
-    return true;
+    return outcome.IsSuccess();
 }
 
-bool ParseGcsUri(const std::string& gcs_uri, std::string& bucket_name, std::string& object_name) {
-    const std::string prefix = "gs://";
-    if (gcs_uri.compare(0, prefix.size(), prefix) != 0) {
-        spdlog::error("Invalid GCS URI: {}", gcs_uri);
+bool ParseS3Uri(const std::string& s3_uri, std::string& bucket_name, std::string& object_name) {
+    const std::string prefix = "s3://";
+    if (s3_uri.compare(0, prefix.size(), prefix) != 0) {
+        spdlog::error("Invalid S3 URI: {}", s3_uri);
         return false;
     }
 
-    std::size_t pos = gcs_uri.find('/', prefix.size());
+    std::size_t pos = s3_uri.find('/', prefix.size());
     if (pos == std::string::npos) {
-        spdlog::error("Invalid GCS URI, missing object name: {}", gcs_uri);
+        spdlog::error("Invalid S3 URI, missing object name: {}", s3_uri);
         return false;
     }
 
-    bucket_name = gcs_uri.substr(prefix.size(), pos - prefix.size());
-    object_name = gcs_uri.substr(pos + 1);
+    bucket_name = s3_uri.substr(prefix.size(), pos - prefix.size());
+    object_name = s3_uri.substr(pos + 1);
 
     return true;
 }
@@ -116,17 +141,17 @@ std::string GetEnvironmentVariableOrDefault(const std::string& variable_name,
 
 const char *driver_getDriverName()
 {
-	return driver_name;
+	return "S3 driver";
 }
 
 const char *driver_getVersion()
 {
-	return version;
+	return "0.1.0";
 }
 
 const char *driver_getScheme()
 {
-	return driver_scheme;
+	return "s3";
 }
 
 int driver_isReadOnly()
@@ -136,7 +161,7 @@ int driver_isReadOnly()
 
 int driver_connect()
 {
-    auto loglevel = GetEnvironmentVariableOrDefault("GCS_DRIVER_LOGLEVEL", "info");
+    auto loglevel = GetEnvironmentVariableOrDefault("S3_DRIVER_LOGLEVEL", "info");
     if (loglevel == "debug")
         spdlog::set_level(spdlog::level::debug);
     else if (loglevel == "trace")
@@ -147,16 +172,39 @@ int driver_connect()
     spdlog::debug("Connect {}", loglevel);
 
 	// Initialize variables from environment
-    globalBucketName = GetEnvironmentVariableOrDefault("GCS_BUCKET_NAME", "");
-
-    namespace gcs = google::cloud::storage;
-    auto client_response = gcs::Client::CreateDefaultClient();
-
-    if (!client_response) {
-        spdlog::error("Failed to create Storage Client: {}", (int)(client_response.status().code()), client_response.status().message());
+    // Both AWS_xxx standard variables and AutoML S3_xxx variables are supported
+	// If both are present, AWS_xxx variables will be given precedence
+	globalBucketName = GetEnvironmentVariableOrDefault("S3_BUCKET_NAME", "");
+	std::string s3endpoint = GetEnvironmentVariableOrDefault("S3_ENDPOINT", "");
+	s3endpoint = GetEnvironmentVariableOrDefault("AWS_ENDPOINT_URL", s3endpoint);
+	std::string s3region = GetEnvironmentVariableOrDefault("AWS_DEFAULT_REGION", "us-east-1");
+	std::string s3accessKey = GetEnvironmentVariableOrDefault("S3_ACCESS_KEY", "");
+	s3accessKey = GetEnvironmentVariableOrDefault("AWS_ACCESS_KEY_ID", s3accessKey);
+	std::string s3secretKey = GetEnvironmentVariableOrDefault("S3_SECRET_KEY", "");
+	s3secretKey = GetEnvironmentVariableOrDefault("AWS_SECRET_ACCESS_KEY", s3secretKey);
+	if ((s3accessKey != "" && s3secretKey == "") || (s3accessKey == "" && s3secretKey != "")) {
+		spdlog::critical("Access key and secret configuration is only permitted when both values are provided.");
         return false;
+	}
+    // Initialisation du SDK AWS
+    Aws::InitAPI(options);
+
+    Aws::Client::ClientConfiguration clientConfig;
+    clientConfig.allowSystemProxy = true;
+    clientConfig.verifySSL = false;
+    if (s3endpoint != "") {
+        clientConfig.endpointOverride = s3endpoint;
     }
-    client = client_response.value();
+    if (s3region != "") {
+        clientConfig.region = s3region;
+    }
+    if (s3accessKey != "") {
+        Aws::Auth::AWSCredentials credentials(s3accessKey, s3secretKey);
+        client = new Aws::S3::S3Client(credentials, Aws::MakeShared<Aws::S3::S3EndpointProvider>(Aws::S3::S3Client::ALLOCATION_TAG), clientConfig);
+    } else {
+        client = new Aws::S3::S3Client(clientConfig);
+    }
+
     bIsConnected = true;
 	return true;
 }
@@ -164,6 +212,10 @@ int driver_connect()
 int driver_disconnect()
 {
 	int nRet = 0;
+    if (client != NULL) {
+        delete(client);
+        ShutdownAPI(options);
+    }
 	return nRet == 0;
 }
 
@@ -197,19 +249,22 @@ int driver_fileExists(const char *sFilePathName)
     spdlog::debug("fileExist {}", sFilePathName);
 
     std::string bucket_name, object_name;
-    ParseGcsUri(sFilePathName, bucket_name, object_name);
+    ParseS3Uri(sFilePathName, bucket_name, object_name);
     FallbackToDefaultBucket(bucket_name);
 
-    auto object_metadata = client.GetObjectMetadata(bucket_name, object_name);
-    if (object_metadata) {
-        spdlog::debug("file {} exists!", sFilePathName);
-        return true; // L'objet existe
-    } else if (object_metadata.status().code() == google::cloud::StatusCode::kNotFound) {
-        return false; // L'objet n'existe pas
-    } else {
-        spdlog::error("Error checking object: {}", object_metadata.status().message());
-        return false; // Une erreur s'est produite lors de la vérification
+    // Configuration de la requête HEAD pour l'objet
+    Aws::S3::Model::HeadObjectRequest head_object_request;
+    head_object_request.WithBucket(bucket_name).WithKey(object_name);
+
+    // Exécution de la requête HEAD
+    auto head_object_outcome = client->HeadObject(head_object_request);
+
+    if (!head_object_outcome.IsSuccess()) {
+        spdlog::debug("Failed retrieving file info: {} {}", int(head_object_outcome.GetError().GetErrorType()), head_object_outcome.GetError().GetMessage());
     }
+
+    // Retourne true si l'objet existe, false sinon
+    return head_object_outcome.IsSuccess();
 }
 
 int driver_dirExists(const char *sFilePathName)
@@ -220,15 +275,20 @@ int driver_dirExists(const char *sFilePathName)
 }
 
 long long int getFileSize(std::string bucket_name, std::string object_name) {
-    auto object_metadata = client.GetObjectMetadata(bucket_name, object_name);
-    if (object_metadata) {
-        return object_metadata->size();
-    } else if (object_metadata.status().code() == google::cloud::StatusCode::kNotFound) {
-        return -1; // L'objet n'existe pas
-    } else {
-        spdlog::error("Error checking object: {}", object_metadata.status().message());
-        return -1; // Une erreur s'est produite lors de la vérification
+    // Configuration de la requête HEAD pour l'objet
+    Aws::S3::Model::HeadObjectRequest head_object_request;
+    head_object_request.WithBucket(bucket_name).WithKey(object_name);
+
+    // Exécution de la requête HEAD
+    auto head_object_outcome = client->HeadObject(head_object_request);
+
+    if (!head_object_outcome.IsSuccess()) {
+        spdlog::error("Failed retrieving file info: {}", head_object_outcome.GetError().GetMessage());
+        return -1;
     }
+
+    // Retourne la taille de l'objet s'il existe
+    return head_object_outcome.GetResult().GetContentLength();
 }
 
 long long int driver_getFileSize(const char *filename)
@@ -236,7 +296,7 @@ long long int driver_getFileSize(const char *filename)
     spdlog::debug("getFileSize {}", filename);
 
     std::string bucket_name, object_name;
-    ParseGcsUri(filename, bucket_name, object_name);
+    ParseS3Uri(filename, bucket_name, object_name);
     FallbackToDefaultBucket(bucket_name);
 
     return getFileSize(bucket_name, object_name);
@@ -247,7 +307,7 @@ void *driver_fopen(const char *filename, char mode)
     spdlog::debug("fopen {} {}", filename, mode);
 
     std::string bucket_name, object_name;
-    ParseGcsUri(filename, bucket_name, object_name);
+    ParseS3Uri(filename, bucket_name, object_name);
     FallbackToDefaultBucket(bucket_name);
 	assert(driver_isConnected());
 
@@ -372,7 +432,7 @@ long long int driver_fwrite(const void *ptr, size_t size, size_t count, void *st
     assert(stream != NULL);
 	MultiPartFile *h = (MultiPartFile *)stream;
 
-    UploadBufferToGcs(h->bucketname, h->filename, (char*)ptr, size*count);
+    UploadBuffer(h->bucketname, h->filename, (char*)ptr, size*count);
     
     // TODO proper error handling...
     return size*count;
@@ -390,16 +450,22 @@ int driver_remove(const char *filename)
 
 	assert(driver_isConnected());
     std::string bucket_name, object_name;
-    ParseGcsUri(filename, bucket_name, object_name);
+    ParseS3Uri(filename, bucket_name, object_name);
     FallbackToDefaultBucket(bucket_name);
 
-    auto status = client.DeleteObject(bucket_name, object_name);
-    if (!status.ok()) {
-        spdlog::error("Error deleting object: {} {}", (int)(status.code()), status.message());
-        return 0;
+    Aws::S3::Model::DeleteObjectRequest request;
+
+    request.WithBucket(bucket_name).WithKey(object_name);
+
+    Aws::S3::Model::DeleteObjectOutcome outcome =
+            client->DeleteObject(request);
+
+    if (!outcome.IsSuccess()) {
+        auto err = outcome.GetError();
+        spdlog::error("DeleteObject: {} {}", err.GetExceptionName(), err.GetMessage());
     }
 
-    return 1;
+    return outcome.IsSuccess();
 }
 
 int driver_rmdir(const char *filename)
@@ -433,15 +499,20 @@ int driver_copyToLocal(const char *sSourceFilePathName, const char *sDestFilePat
 
 	assert(driver_isConnected());
 
-    namespace gcs = google::cloud::storage;
     std::string bucket_name, object_name;
-    ParseGcsUri(sSourceFilePathName, bucket_name, object_name);
+    ParseS3Uri(sSourceFilePathName, bucket_name, object_name);
     FallbackToDefaultBucket(bucket_name);
 
-    // Create a ReadObject stream
-    auto reader = client.ReadObject(bucket_name, object_name);
-    if (!reader) {
-        spdlog::error("Error initializing download stream: {} {}", (int)(reader.status().code()), reader.status().message());
+    // Configuration de la requête pour obtenir un objet
+    Aws::S3::Model::GetObjectRequest object_request;
+    object_request.WithBucket(bucket_name).WithKey(object_name);
+
+    // Exécution de la requête
+    auto get_object_outcome = client->GetObject(object_request);
+    long long int num_read = -1;
+
+    if (!get_object_outcome.IsSuccess()) {
+        spdlog::error("Error initializing download stream: {}", get_object_outcome.GetError().GetMessage());
         return false;
     }
 
@@ -452,34 +523,13 @@ int driver_copyToLocal(const char *sSourceFilePathName, const char *sDestFilePat
         return false;
     }
 
-    // Read from the GCS object and write to the local file
-    std::string buffer(1024, '\0');
-    spdlog::debug("Start reading {}", buffer);
+    // Téléchargement réussi, copie des données vers le fichier local
+    file_stream << get_object_outcome.GetResult().GetBody().rdbuf();
+    file_stream.close();
 
-    bool complete = false;
-    while (!complete) {
-        reader.read(&buffer[0], buffer.size());
-
-        if (reader.bad()) {
-            spdlog::error("Error during read: {} {}", (int)(reader.status().code()), reader.status().message());
-            complete = true;
-        } 
-        spdlog::debug("Read {}", reader.gcount());
-
-        if (reader.gcount() > 0) {
-            file_stream.write(buffer.data(), reader.gcount());
-        } else {
-            complete = true;
-        }
-
-    }
     spdlog::debug("Close output"); 
     file_stream.close();
 
-    if (!reader.status().ok()) {
-        std::cerr << "Error during download: " << reader.status() << "\n";
-        return 0;
-    }
     spdlog::debug("Done copying"); 
 
     return 1;
@@ -491,40 +541,27 @@ int driver_copyFromLocal(const char *sSourceFilePathName, const char *sDestFileP
 
 	assert(driver_isConnected());
 
-    namespace gcs = google::cloud::storage;
     std::string bucket_name, object_name;
-    ParseGcsUri(sDestFilePathName, bucket_name, object_name);
+    ParseS3Uri(sDestFilePathName, bucket_name, object_name);
     FallbackToDefaultBucket(bucket_name);
 
-    // Open the local file
-    std::ifstream file_stream(sSourceFilePathName, std::ios::binary);
-    if (!file_stream.is_open()) {
-        spdlog::error("Failed to open local file: {}", sSourceFilePathName);
-        return false;
-    }
+    // Configuration de la requête pour envoyer l'objet
+    Aws::S3::Model::PutObjectRequest object_request;
+    object_request.WithBucket(bucket_name).WithKey(object_name);
 
-    // Create a WriteObject stream
-    auto writer = client.WriteObject(bucket_name, object_name, gcs::IfGenerationMatch(0));
-    if (!writer) {
-        spdlog::error("Error initializing upload stream: {} {}", (int)(writer.metadata().status().code()), writer.metadata().status().message());
-        return false;
-    }
+    // Chargement du fichier dans un flux d'entrée
+    std::shared_ptr<Aws::IOStream> input_data = 
+        Aws::MakeShared<Aws::FStream>("PutObjectInputStream",
+                                        sSourceFilePathName,
+                                        std::ios_base::in | std::ios_base::binary);
 
-    // Read from the local file and write to the GCS object
-    std::string buffer(1024, '\0');
-    while (!file_stream.eof()) {
-        file_stream.read(&buffer[0], buffer.size());
-        writer.write(buffer.data(), file_stream.gcount());
-    }
-    file_stream.close();
+    object_request.SetBody(input_data);
 
-    // Close the GCS WriteObject stream to complete the upload
-    writer.Close();
+    // Exécution de la requête
+    auto put_object_outcome = client->PutObject(object_request);
 
-    auto status = writer.metadata();
-    if (!status) {
-        spdlog::error("Error during file upload: {} {}", (int)(status.status().code()), status.status().message());
-
+    if (!put_object_outcome.IsSuccess())  {
+        spdlog::error("Error during file upload: {}", put_object_outcome.GetError().GetMessage());
         return false;
     }
 
