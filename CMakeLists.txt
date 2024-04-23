@@ -13,6 +13,10 @@ cmake_minimum_required(VERSION 3.20)
 set (CMAKE_CXX_STANDARD 17)
 
 project(khiops-gcs LANGUAGES CXX)
+if(NOT CMAKE_BUILD_TYPE)
+  set(CMAKE_BUILD_TYPE Release)
+endif()
+set(CMAKE_CXX_FLAGS_RELEASE "-O3 -Os")
 
 # Find dependencies provided by vcpkg (via vcpkg.cmake)
 find_package(fmt CONFIG REQUIRED)
@@ -20,13 +24,12 @@ find_package(google_cloud_cpp_storage CONFIG REQUIRED)
 find_package(spdlog CONFIG REQUIRED)
 
 add_library(khiopsdriver_file_gcs MODULE src/gcsplugin.h src/gcsplugin.cpp)
-
-target_link_libraries(khiopsdriver_file_gcs
-PRIVATE CURL::libcurl google-cloud-cpp::storage google-cloud-cpp::storage_protos google-cloud-cpp::experimental-storage-grpc spdlog::spdlog_header_only)
+set_target_properties(khiopsdriver_file_gcs PROPERTIES LINK_FLAGS_RELEASE -s)
+target_link_libraries(khiopsdriver_file_gcs PRIVATE google-cloud-cpp::storage spdlog::spdlog)
 
 add_executable(KhiopsPluginTest src/khiopsplugintest.cpp)
 target_link_libraries(KhiopsPluginTest PRIVATE fmt::fmt)
 
-add_executable(drivertest src/drivertest.cpp)# src/libraryloader.h src/libraryloader.cpp)
+add_executable(drivertest src/drivertest.cpp)
 target_link_libraries(drivertest)
 
