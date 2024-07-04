@@ -50,7 +50,7 @@ add_library(khiopsdriver_file_s3 MODULE src/s3plugin.h src/s3plugin.cpp)
 
 target_include_directories(khiopsdriver_file_s3 PRIVATE ${AWSSDK_INCLUDE_DIRS})
 target_link_libraries(khiopsdriver_file_s3 PRIVATE ${AWSSDK_LIBRARIES} ZLIB::ZLIB spdlog::spdlog)
-target_compile_options(khiopsdriver_file_gcs
+target_compile_options(khiopsdriver_file_s3
 	PRIVATE $<$<CXX_COMPILER_ID:MSVC>:-Wall>
 	PRIVATE $<$<CXX_COMPILER_ID:AppleClang,Clang,GNU>:-Wall;-Wextra;-pedantic>
 )
