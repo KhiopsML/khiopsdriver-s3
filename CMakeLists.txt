@@ -46,6 +46,8 @@ if((CMAKE_SYSTEM_NAME STREQUAL "Linux") AND NOT(CMAKE_BUILD_TYPE STREQUAL "Relea
 	add_link_options(-fsanitize=undefined -fsanitize=address -fno-sanitize-recover=all)
 endif()
 
+set(ENABLE_SHARED_LIBRARIES OFF)
+
 add_library(khiopsdriver_file_s3 SHARED src/s3plugin.h src/s3plugin.cpp)
 
 target_include_directories(khiopsdriver_file_s3 PRIVATE ${AWSSDK_INCLUDE_DIRS})
