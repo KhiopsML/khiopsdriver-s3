@@ -216,6 +216,7 @@ int driver_disconnect()
         delete(client);
         ShutdownAPI(options);
     }
+    bIsConnected = false;
 	return nRet == 0;
 }
 

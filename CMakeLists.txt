@@ -55,7 +55,7 @@ target_compile_options(khiopsdriver_file_s3
 	PRIVATE $<$<CXX_COMPILER_ID:AppleClang,Clang,GNU>:-Wall;-Wextra;-pedantic>
 )
 
-#add_subdirectory(test)
+add_subdirectory(test)
 
 option(BUILD_TESTS "Build test programs" OFF)
 
