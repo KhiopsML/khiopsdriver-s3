@@ -82,6 +82,9 @@ public:
 };
 
 TEST(S3DriverTest,  GetObjectTest) {
+	Aws::SDKOptions options;
+    Aws::InitAPI(options);
+
     MockS3Client mockClient;
     Aws::S3::Model::GetObjectRequest request;
     Aws::S3::Model::GetObjectResult expected;
@@ -106,13 +109,13 @@ TEST(S3DriverTest,  GetObjectTest) {
     ASSERT_STREQ("What country shall I say is calling From across the world?", ss.str().c_str());
 	// Delete shared ptr, otherwise a mismatched free will be called 
 	body.reset();
+
+
+	Aws::ShutdownAPI(options);
 }
 
 int main(int argc, char** argv)
 {
-	Aws::SDKOptions options;
-    Aws::InitAPI(options);
-
 	::testing::InitGoogleTest(&argc, argv);
 
 	//check that the arguments are effectively passed from ctest
@@ -122,8 +125,6 @@ int main(int argc, char** argv)
 	}
 
 	int result = RUN_ALL_TESTS();
-
-	Aws::ShutdownAPI(options);
 
 	return result;
 }
