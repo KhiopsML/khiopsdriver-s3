@@ -56,21 +56,23 @@ TEST(S3DriverTest, Disconnect)
     ASSERT_EQ(driver_disconnect(), kSuccess);
     ASSERT_EQ(driver_isConnected(), kFalse);
 }
-/*
+
 TEST(S3DriverTest, GetFileSize)
 {
 	ASSERT_EQ(driver_connect(), kSuccess);
-	ASSERT_EQ(driver_getFileSize("s3://bucket/khiops_data/samples/Adult/Adult.txt"), 5585568);
+	ASSERT_EQ(driver_getFileSize("s3://diod-data-di-jupyterhub/khiops_data/samples/Adult/Adult.txt"), 5585568);
 	ASSERT_EQ(driver_disconnect(), kSuccess);
 }
-
+/*
+// TODO
 TEST(S3DriverTest, GetMultipartFileSize)
 {
 	ASSERT_EQ(driver_connect(), kSuccess);
-	ASSERT_EQ(driver_getFileSize("s3://bucket/khiops_data/bq_export/Adult/Adult-split-00000000000*.txt"), 5585568);
+	ASSERT_EQ(driver_getFileSize("s3://diod-data-di-jupyterhub/bq_export/Adult/Adult-split-00000000000*.txt"), 5585568);
 	ASSERT_EQ(driver_disconnect(), kSuccess);
 }
 */
+
 TEST(S3DriverTest, GetSystemPreferredBufferSize)
 {
 	ASSERT_EQ(driver_getSystemPreferredBufferSize(), 4 * 1024 * 1024);
@@ -82,6 +84,7 @@ public:
 };
 
 TEST(S3DriverTest,  GetObjectTest) {
+	// Setup AWS API
 	Aws::SDKOptions options;
     Aws::InitAPI(options);
 
@@ -110,7 +113,7 @@ TEST(S3DriverTest,  GetObjectTest) {
 	// Delete shared ptr, otherwise a mismatched free will be called 
 	body.reset();
 
-
+	// Cleanup AWS API
 	Aws::ShutdownAPI(options);
 }
 
