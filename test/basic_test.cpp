@@ -10,6 +10,8 @@
 
 #include "../src/s3plugin.h"
 
+// my hefty contribution, by cedric
+
 constexpr int kSuccess{ 1 };
 constexpr int kFailure{ 0 };
 
