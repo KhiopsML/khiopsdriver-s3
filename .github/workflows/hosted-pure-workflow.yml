@@ -105,7 +105,7 @@ jobs:
           cmake --preset ninja-multi-vcpkg -DCMAKE_BUILD_TYPE=Debug
           cmake --build --preset ninja-vcpkg-debug
           ctest --preset test-debug --output-on-failure
-          cmake --build --preset ninja-vcpkg-debug --target khiops-s3_coverage --target khiops-gcs_cobertura
+          cmake --build --preset ninja-vcpkg-debug --target khiops-s3_coverage --target khiops-s3_cobertura
 
       - name: Upload coverage results
         uses: actions/upload-artifact@v4
