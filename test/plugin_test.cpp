@@ -1,9 +1,9 @@
 #include <gtest/gtest.h>
 
-#include "path_helper.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "path_helper.h"
 
 #if defined(__unix__) || defined(__unix)
 #define __is_unix__
@@ -16,13 +16,13 @@
 #endif
 
 #ifdef __unix_or_mac__
-#include <dlfcn.h>
-#include <libgen.h>
-#include <limits.h>
-#include <unistd.h>
+	#include <unistd.h>
+	#include <dlfcn.h>
+	#include <libgen.h>
+	#include <limits.h>
 #else
-#include "errhandlingapi.h"
-#include <windows.h>
+	#include <windows.h>
+	#include "errhandlingapi.h"
 #endif
 
 #ifdef __is_unix__
