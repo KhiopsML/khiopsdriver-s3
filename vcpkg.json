@@ -1,13 +1,29 @@
 {
-    "name": "gcs-driver",
-    "version-string": "latest",
-    "description": "Setting up C++ for Google Cloud with CMake and vcpkg",
-    "dependencies": [
-        {"name": "boost-uuid"},
-        {"name": "fmt"},
-        {"name": "aws-sdk-cpp", "default-features": false, "features": ["s3"]},
-        {"name": "spdlog"},
-        {"name": "zlib"}
-    ]
+  "name": "gcs-driver",
+  "version-string": "latest",
+  "description": "Setting up C++ for Google Cloud with CMake and vcpkg",
+  "dependencies": [
+    {
+      "name": "boost-uuid"
+    },
+    {
+      "name": "boost-process"
+    },
+    {
+      "name": "fmt"
+    },
+    {
+      "name": "aws-sdk-cpp",
+      "default-features": false,
+      "features": [
+        "s3"
+      ]
+    },
+    {
+      "name": "spdlog"
+    },
+    {
+      "name": "zlib"
+    }
+  ]
 }
-
