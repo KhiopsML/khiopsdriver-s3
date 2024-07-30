@@ -5,6 +5,7 @@
 #include "s3plugin.h"
 #include <aws/core/Aws.h>
 #include <aws/core/auth/AWSCredentials.h>
+#include <aws/core/auth/AWSCredentialsProvider.h>
 #include <aws/s3/S3Client.h>
 #include <aws/s3/model/DeleteObjectRequest.h>
 #include <aws/s3/model/GetObjectRequest.h>
@@ -14,6 +15,9 @@
 #include <assert.h>
 #include <fstream>
 #include <iostream>
+
+#include "ini.h"
+#include <filesystem>
 
 int bIsConnected = false;
 Aws::SDKOptions options;
@@ -171,13 +175,51 @@ int driver_connect()
 
     spdlog::debug("Connect {}", loglevel);
 
-	// Initialize variables from environment
+    // Configuration: we honor both standard AWS config files and environment variables
+    // If both configuration files and environment variables are set precedence is given to environment variables
+    std::string s3endpoint = "";
+    std::string s3region = "us-east-1";
+
+    // Load AWS configuration from file
+    Aws::Auth::AWSCredentials configCredentials;
+    std::string userHome = GetEnvironmentVariableOrDefault("HOME", "");
+    if (!userHome.empty()) {
+        std::string configFile = GetEnvironmentVariableOrDefault("AWS_CONFIG_FILE", std::filesystem::path(userHome).append(".aws").append("config"));
+        spdlog::debug("Conf file = {}", configFile);
+        if (std::filesystem::exists(std::filesystem::path(configFile))) {
+            std::string profile = GetEnvironmentVariableOrDefault("AWS_PROFILE", "default");
+            spdlog::debug("Profile = {}", profile);
+            std::string profileSection = profile;
+            if (profile != "default") {
+                profileSection = std::string("profile ")+profile;
+            }
+            Aws::Auth::ProfileConfigFileAWSCredentialsProvider provider(profile.c_str());
+            configCredentials = provider.GetAWSCredentials();
+
+            mINI::INIFile file(configFile);
+            mINI::INIStructure ini;
+            file.read(ini);
+            std::string confEndpoint = ini.get(profileSection).get("endpoint_url");
+            if (!confEndpoint.empty()) {
+                s3endpoint = std::move(confEndpoint);
+            }
+            spdlog::debug("Endpoint = {}", s3endpoint);
+
+            std::string confRegion = ini.get(profileSection).get("region");
+            if (!confRegion.empty()) {
+                s3region = std::move(confRegion);
+            }
+            spdlog::debug("Region = {}", s3region);
+        }
+    }
+
+    // Initialize variables from environment
     // Both AWS_xxx standard variables and AutoML S3_xxx variables are supported
 	// If both are present, AWS_xxx variables will be given precedence
 	globalBucketName = GetEnvironmentVariableOrDefault("S3_BUCKET_NAME", "");
-	std::string s3endpoint = GetEnvironmentVariableOrDefault("S3_ENDPOINT", "");
+	s3endpoint = GetEnvironmentVariableOrDefault("S3_ENDPOINT", s3endpoint);
 	s3endpoint = GetEnvironmentVariableOrDefault("AWS_ENDPOINT_URL", s3endpoint);
-	std::string s3region = GetEnvironmentVariableOrDefault("AWS_DEFAULT_REGION", "us-east-1");
+	s3region = GetEnvironmentVariableOrDefault("AWS_DEFAULT_REGION", s3region);
 	std::string s3accessKey = GetEnvironmentVariableOrDefault("S3_ACCESS_KEY", "");
 	s3accessKey = GetEnvironmentVariableOrDefault("AWS_ACCESS_KEY_ID", s3accessKey);
 	std::string s3secretKey = GetEnvironmentVariableOrDefault("S3_SECRET_KEY", "");
@@ -186,6 +228,7 @@ int driver_connect()
 		spdlog::critical("Access key and secret configuration is only permitted when both values are provided.");
         return false;
 	}
+
     // Initialisation du SDK AWS
     Aws::InitAPI(options);
 
@@ -202,7 +245,7 @@ int driver_connect()
         Aws::Auth::AWSCredentials credentials(s3accessKey, s3secretKey);
         client = new Aws::S3::S3Client(credentials, Aws::MakeShared<Aws::S3::S3EndpointProvider>(Aws::S3::S3Client::ALLOCATION_TAG), clientConfig);
     } else {
-        client = new Aws::S3::S3Client(clientConfig);
+        client = new Aws::S3::S3Client(configCredentials, Aws::MakeShared<Aws::S3::S3EndpointProvider>(Aws::S3::S3Client::ALLOCATION_TAG), clientConfig);
     }
 
     bIsConnected = true;

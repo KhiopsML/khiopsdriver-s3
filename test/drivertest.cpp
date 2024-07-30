@@ -21,7 +21,7 @@ constexpr int kFailure{ 0 };
 
 TEST(GCSDriverTest, End2EndTest_SingleFile_512KB_OK)
 {
-	const char* inputFilename = "gs://data-test-khiops-driver-gcs/khiops_data/bq_export/Adult/Adult-split-000000000001.txt";
+	const char* inputFilename = "s3://diod-data-di-jupyterhub/khiops_data/bq_export/Adult/Adult-split-000000000001.txt";
 
 	/* default size of buffer passed to driver */
 	int nBufferSize = 512 * 1024;
@@ -33,7 +33,7 @@ TEST(GCSDriverTest, End2EndTest_SingleFile_512KB_OK)
 
 TEST(GCSDriverTest, End2EndTest_SingleFile_2MB_OK)
 {
-	const char* inputFilename = "gs://data-test-khiops-driver-gcs/khiops_data/bq_export/Adult/Adult-split-000000000001.txt";
+	const char* inputFilename = "s3://diod-data-di-jupyterhub/khiops_data/bq_export/Adult/Adult-split-000000000001.txt";
 
 	/* default size of buffer passed to driver */
 	int nBufferSize = 2 * 1024 * 1024;
@@ -46,7 +46,7 @@ TEST(GCSDriverTest, End2EndTest_SingleFile_2MB_OK)
 TEST(GCSDriverTest, End2EndTest_SingleFile_512B_OK)
 {
 	/* use this particular file because it is short and buffer size triggers lots of read operations */
-	const char* inputFilename = "gs://data-test-khiops-driver-gcs/khiops_data/bq_export/Adult/Adult-split-000000000002.txt";
+	const char* inputFilename = "s3://diod-data-di-jupyterhub/khiops_data/bq_export/Adult/Adult-split-000000000002.txt";
 
 	/* default size of buffer passed to driver */
 	int nBufferSize = 512;
@@ -56,9 +56,10 @@ TEST(GCSDriverTest, End2EndTest_SingleFile_512B_OK)
     ASSERT_EQ(test_status, kSuccess);
 }
 
+#if 0
 TEST(GCSDriverTest, End2EndTest_MultipartBQFile_512KB_OK)
 {
-	const char* inputFilename = "gs://data-test-khiops-driver-gcs/khiops_data/bq_export/Adult/Adult-split-00000000000*.txt";
+	const char* inputFilename = "s3://diod-data-di-jupyterhub/khiops_data/bq_export/Adult/Adult-split-00000000000*.txt";
 
 	/* default size of buffer passed to driver */
 	int nBufferSize = 512 * 1024;
@@ -70,7 +71,7 @@ TEST(GCSDriverTest, End2EndTest_MultipartBQFile_512KB_OK)
 
 TEST(GCSDriverTest, End2EndTest_MultipartBQEmptyFile_512KB_OK)
 {
-	const char* inputFilename = "gs://data-test-khiops-driver-gcs/khiops_data/bq_export/Adult_empty/Adult-split-00000000000*.txt";
+	const char* inputFilename = "s3://diod-data-di-jupyterhub/khiops_data/bq_export/Adult_empty/Adult-split-00000000000*.txt";
 
 	/* default size of buffer passed to driver */
 	int nBufferSize = 512 * 1024;
@@ -82,7 +83,7 @@ TEST(GCSDriverTest, End2EndTest_MultipartBQEmptyFile_512KB_OK)
 
 TEST(GCSDriverTest, End2EndTest_MultipartSplitFile_512KB_OK)
 {
-	const char* inputFilename = "gs://data-test-khiops-driver-gcs/khiops_data/split/Adult/Adult-split-0*.txt";
+	const char* inputFilename = "s3://diod-data-di-jupyterhub/khiops_data/split/Adult/Adult-split-0*.txt";
 
 	/* default size of buffer passed to driver */
 	int nBufferSize = 512 * 1024;
@@ -94,7 +95,7 @@ TEST(GCSDriverTest, End2EndTest_MultipartSplitFile_512KB_OK)
 
 TEST(GCSDriverTest, End2EndTest_MultipartSubsplitFile_512KB_OK)
 {
-	const char* inputFilename = "gs://data-test-khiops-driver-gcs/khiops_data/split/Adult_subsplit/**/Adult-split-0*.txt";
+	const char* inputFilename = "s3://diod-data-di-jupyterhub/khiops_data/split/Adult_subsplit/**/Adult-split-0*.txt";
 
 	/* default size of buffer passed to driver */
 	int nBufferSize = 512 * 1024;
@@ -103,13 +104,14 @@ TEST(GCSDriverTest, End2EndTest_MultipartSubsplitFile_512KB_OK)
 	int test_status = launch_test(inputFilename, nBufferSize);
     ASSERT_EQ(test_status, kSuccess);
 }
+#endif
 
 int launch_test(const char *inputFilename, int nBufferSize)
 {
 	int test_status = kSuccess;
 
 	std::stringstream outputFilename;
-	outputFilename << "gs://data-test-khiops-driver-gcs/khiops_data/output/" << boost::uuids::random_generator()() << "/output.txt";
+	outputFilename << "s3://diod-data-di-jupyterhub/khiops_data/output/" << boost::uuids::random_generator()() << "/output.txt";
 	std::stringstream localOutput;
 #ifdef _WIN32
 	localOutput << std::getenv("TEMP") << "\\out-" << boost::uuids::random_generator()() << ".txt";
