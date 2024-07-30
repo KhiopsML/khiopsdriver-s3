@@ -184,7 +184,7 @@ int driver_connect()
     Aws::Auth::AWSCredentials configCredentials;
     std::string userHome = GetEnvironmentVariableOrDefault("HOME", "");
     if (!userHome.empty()) {
-        std::string configFile = GetEnvironmentVariableOrDefault("AWS_CONFIG_FILE", std::filesystem::path(userHome).append(".aws").append("config"));
+        std::string configFile = GetEnvironmentVariableOrDefault("AWS_CONFIG_FILE", std::filesystem::path(userHome).append(".aws").append("config").string());
         spdlog::debug("Conf file = {}", configFile);
         if (std::filesystem::exists(std::filesystem::path(configFile))) {
             std::string profile = GetEnvironmentVariableOrDefault("AWS_PROFILE", "default");
