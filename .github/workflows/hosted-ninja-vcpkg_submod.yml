@@ -66,7 +66,7 @@ jobs:
         with:
           vcpkgJsonGlob: 'vcpkg.json'
 
-      - name: Install coverage tols
+      - name: Install coverage tools
         if: matrix.os == 'ubuntu-latest'
         run: |
           sudo apt-get update
@@ -91,7 +91,7 @@ jobs:
       - name: Generate coverage report
         if: matrix.os == 'ubuntu-latest'
         run: |
-          cmake --build --preset ninja-vcpkg-debug --target khiops-gcs_coverage --target khiops-gcs_cobertura
+          cmake --build --preset ninja-vcpkg-debug --target khiops-s3_coverage --target khiops-gcs_cobertura
 
       - name: Upload coverage results
         uses: actions/upload-artifact@v4
