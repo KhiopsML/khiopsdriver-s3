@@ -10,11 +10,10 @@ FetchContent_MakeAvailable(googletest)
   
 include(GoogleTest)
 
+# Find dependencies
+find_package(Boost REQUIRED)
 find_package(AWSSDK CONFIG COMPONENTS core s3 REQUIRED)
-
-add_executable(basic_test basic_test.cpp)
-target_include_directories(basic_test PRIVATE ${AWSSDK_INCLUDE_DIRS})
-target_link_libraries(basic_test PRIVATE ${AWSSDK_LIBRARIES})
+add_executable(basic_test basic_test.cpp drivertest.cpp)
 
 target_compile_options(basic_test
 	PRIVATE $<$<CXX_COMPILER_ID:MSVC>:-Wall>
@@ -27,8 +26,10 @@ target_compile_options(basic_test
 )
 
 target_include_directories(basic_test
-  PUBLIC ${CMAKE_CURRENT_BINARY_DIR}
-         ${${PROJECT_NAME}_SOURCE_DIR}/src)
+  PRIVATE ${${PROJECT_NAME}_SOURCE_DIR}/src
+  PRIVATE ${AWSSDK_INCLUDE_DIRS})
+target_link_libraries(basic_test PRIVATE ${AWSSDK_LIBRARIES})
+
 target_link_libraries(basic_test PRIVATE GTest::gtest GTest::gmock GTest::gmock_main khiopsdriver_file_s3)
 
 gtest_discover_tests(basic_test)

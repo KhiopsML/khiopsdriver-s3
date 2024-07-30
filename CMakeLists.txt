@@ -12,7 +12,7 @@ cmake_minimum_required(VERSION 3.20)
 # Enforce c++17 standard.
 set (CMAKE_CXX_STANDARD 17)
 
-project(khiops-gcs LANGUAGES CXX)
+project(khiops-s3 LANGUAGES CXX)
 
 include(GoogleTest)
 enable_testing()
@@ -44,6 +44,11 @@ if((CMAKE_SYSTEM_NAME STREQUAL "Linux") AND NOT(CMAKE_BUILD_TYPE STREQUAL "Relea
 	message("Build system == Linux, build with sanitizer tools")
 	add_compile_options(-fsanitize=undefined -fsanitize=address -fno-sanitize-recover=all)
 	add_link_options(-fsanitize=undefined -fsanitize=address -fno-sanitize-recover=all)
+	set(CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake/modules/)
+	include(CodeCoverage)
+	set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_COVERAGE} ${CMAKE_CXX_FLAGS_DEBUG}")
+	setup_target_for_coverage(${PROJECT_NAME}_coverage basic_test coverage)
+	setup_target_for_coverage_cobertura(${PROJECT_NAME}_cobertura basic_test coverage --gtest_output=xml:coverage.junit.xml)
 endif()
 
 set(ENABLE_SHARED_LIBRARIES OFF)
@@ -57,13 +62,13 @@ target_compile_options(khiopsdriver_file_s3
 	PRIVATE $<$<CXX_COMPILER_ID:AppleClang,Clang,GNU>:-Wall;-Wextra;-pedantic>
 )
 
-add_subdirectory(test)
-
 option(BUILD_TESTS "Build test programs" OFF)
 
 if(BUILD_TESTS)
-    add_executable(KhiopsPluginTest src/khiopsplugintest.cpp)
-    target_link_libraries(KhiopsPluginTest PRIVATE fmt::fmt)
-    add_executable(drivertest src/drivertest.cpp)
-    target_link_libraries(drivertest)
+	add_executable(KhiopsPluginTest src/khiopsplugintest.cpp)
+	target_link_libraries(KhiopsPluginTest PRIVATE fmt::fmt ${CMAKE_DL_LIBS})
+	add_executable(drivertest src/drivertest.cpp)
+	target_link_libraries(drivertest ${CMAKE_DL_LIBS}) # Link to dl
 endif(BUILD_TESTS)
+
+add_subdirectory(test)
