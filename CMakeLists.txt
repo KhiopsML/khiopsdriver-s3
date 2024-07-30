@@ -63,11 +63,11 @@ if((CMAKE_SYSTEM_NAME STREQUAL "Linux") AND NOT (CMAKE_BUILD_TYPE STREQUAL
     --gtest_output=xml:coverage.junit.xml)
 endif()
 
-set(ENABLE_SHARED_LIBRARIES OFF)
-
 add_library(khiopsdriver_file_s3 SHARED src/s3plugin.h src/s3plugin.cpp)
 
 target_include_directories(khiopsdriver_file_s3 PRIVATE ${AWSSDK_INCLUDE_DIRS})
+target_link_options(khiopsdriver_file_s3 PRIVATE $<$<CONFIG:RELEASE>:-s>
+)# stripping
 target_link_libraries(khiopsdriver_file_s3 PRIVATE ${AWSSDK_LIBRARIES}
                                                    ZLIB::ZLIB spdlog::spdlog)
 target_compile_options(
