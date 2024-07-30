@@ -95,7 +95,7 @@ jobs:
       # As used here the Developer Command Prompt created is targeting x64 and using the default the Windows SDK.
       - uses: ilammy/msvc-dev-cmd@v1
         with:
-          toolset: 14.29.30133
+          toolset: 14.0
 
       - name: Build debug version and run sanitizer checks
         if: matrix.os == 'ubuntu-latest'
