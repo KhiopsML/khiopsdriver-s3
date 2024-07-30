@@ -175,12 +175,14 @@ int driver_connect() {
   Aws::Auth::AWSCredentials configCredentials;
   std::string userHome = GetEnvironmentVariableOrDefault("HOME", "");
   if (!userHome.empty()) {
-    std::string configFile = GetEnvironmentVariableOrDefault(
-        "AWS_CONFIG_FILE", std::filesystem::path(userHome)
-                               .append(".aws")
-                               .append("config")
-                               .string());
+    std::string defaultConfig = std::filesystem::path(userHome)
+                                    .append(".aws")
+                                    .append("config")
+                                    .string();
+    std::string configFile =
+        GetEnvironmentVariableOrDefault("AWS_CONFIG_FILE", defaultConfig);
     spdlog::debug("Conf file = {}", configFile);
+
     if (std::filesystem::exists(std::filesystem::path(configFile))) {
       std::string profile =
           GetEnvironmentVariableOrDefault("AWS_PROFILE", "default");
@@ -207,7 +209,7 @@ int driver_connect() {
         s3region = std::move(confRegion);
       }
       spdlog::debug("Region = {}", s3region);
-    } else {
+    } else if (configFile != defaultConfig) {
       return kFailure;
     }
   }
