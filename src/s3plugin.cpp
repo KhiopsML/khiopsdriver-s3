@@ -15,9 +15,12 @@
 #include <aws/s3/model/PutObjectRequest.h>
 #include <fstream>
 #include <iostream>
+#include <memory>
+#include <sstream>
+#include <string>
 
 #include "ini.h"
-#include <filesystem>
+// #include <filesystem>
 
 constexpr int kSuccess{1};
 constexpr int kFailure{0};
@@ -25,9 +28,15 @@ constexpr int kFailure{0};
 constexpr int kFalse{0};
 constexpr int kTrue{1};
 
+constexpr long long kBadSize{-1};
+
 int bIsConnected = false;
+
+constexpr const char *S3EndpointProvider = "KHIOPS_ML_S3";
+
 Aws::SDKOptions options;
-Aws::S3::S3Client *client = NULL;
+// Aws::S3::S3Client *client = NULL;
+std::unique_ptr<Aws::S3::S3Client> client;
 
 // Global bucket name
 std::string globalBucketName = "";
@@ -44,6 +53,84 @@ struct MultiPartFile {
   std::vector<long long int> cumulativeSize;
 };
 
+std::string last_error;
+
+constexpr const char *nullptr_msg_stub = "Error passing null pointer to ";
+
+#define ERROR_ON_NULL_ARG(arg, err_val)                                        \
+  if (!(arg)) {                                                                \
+    std::ostringstream os;                                                     \
+    os << nullptr_msg_stub << __func__;                                        \
+    LogError(os.str());                                                        \
+    return (err_val);                                                          \
+  }
+
+#define RETURN_ON_ERROR(outcome, msg, err_val)                                 \
+  {                                                                            \
+    if (!(outcome).IsSuccess()) {                                              \
+      LogBadOutcome((outcome), (msg));                                         \
+      return (err_val);                                                        \
+    }                                                                          \
+  }
+
+#define ERROR_ON_NAMES(status_or_names, err_val)                               \
+  RETURN_ON_ERROR((status_or_names), "Error parsing URL", (err_val))
+
+#define NAMES_OR_ERROR(arg, err_val)                                           \
+  auto maybe_parsed_names = ParseS3Uri((arg));                                 \
+  ERROR_ON_NAMES(maybe_parsed_names, (err_val));                               \
+  auto &names = maybe_parsed_names.GetResult();
+
+void LogError(const std::string &msg) {
+  spdlog::error(msg);
+  last_error = std::move(msg);
+}
+
+template <typename R, typename E>
+void LogBadOutcome(const Aws::Utils::Outcome<R, E> &outcome,
+                   const std::string &msg) {
+  outcome.GetError().GetMessage() std::ostringstream os;
+  os << msg << ": " << outcome.GetError().GetMessage();
+  LogError(os.str());
+}
+
+template <typename RequestType>
+RequestType MakeBaseRequest(const std::string &bucket,
+                            const std::string &object,
+                            std::string &&range = "") {
+  RequestType request;
+  request.WithBucket(bucket).WithKey(object);
+  return request
+}
+
+Aws::S3::Model::HeadObjectRequest
+MakeHeadObjectRequest(const std::string &bucket, const std::string &object) {
+  return MakeBaseRequest<Aws::S3::Model::HeadObjectRequest>(bucket, object);
+}
+
+Aws::S3::Model::GetObjectRequest
+MakeGetObjectRequest(const std::string &bucket, const std::string &object,
+                     std::string &&range = "") {
+  auto request =
+      MakeBaseRequest<Aws::S3::Model::GetObjectRequest>(bucket, object);
+  if (!range.empty()) {
+    request.SetRange(std::move(range));
+  }
+  return request;
+}
+
+Aws::S3::Model::GetObjectOutcome GetObject(const std::string &bucket,
+                                           const std::string &object,
+                                           std::string &&range = "") {
+  return client->GetObject(
+      MakeGetObjectRequest(bucket, object, std::move(range)));
+}
+
+Aws::S3::Model::HeadObjectOutcome HeadObject(const std::string &bucket,
+                                             const std::string &object) {
+  return client->HeadObject(MakeHeadObjectRequest(bucket, object));
+}
+
 // Definition of helper functions
 long long int DownloadFileRangeToBuffer(const std::string &bucket_name,
                                         const std::string &object_name,
@@ -51,17 +138,16 @@ long long int DownloadFileRangeToBuffer(const std::string &bucket_name,
                                         std::int64_t start_range,
                                         std::int64_t end_range) {
 
-  // Configuration de la requête pour obtenir un objet
-  Aws::S3::Model::GetObjectRequest object_request;
-  object_request.WithBucket(bucket_name).WithKey(object_name);
-
   // Définition de la plage de bytes à télécharger
   Aws::StringStream range;
   range << "bytes=" << start_range << "-" << end_range;
-  object_request.SetRange(range.str());
 
   // Exécution de la requête
-  auto get_object_outcome = client->GetObject(object_request);
+  auto get_object_outcome = GetObject(bucket_name, object_name, range.str());
+  // // Configuration de la requête pour obtenir un objet
+  // auto object_request = MakeHeadObjectRequest(bucket_name, object_name,
+  // range.str());
+
   long long int num_read = -1;
 
   if (get_object_outcome.IsSuccess()) {
@@ -72,7 +158,6 @@ long long int DownloadFileRangeToBuffer(const std::string &bucket_name,
     retrieved_file.read(buffer, buffer_length);
     num_read = retrieved_file.gcount();
     spdlog::debug("read = {}", num_read);
-
   } else {
     // Gestion des erreurs
     std::cerr << "Failed to download object: "
@@ -108,35 +193,86 @@ bool UploadBuffer(const std::string &bucket_name,
   return outcome.IsSuccess();
 }
 
-bool ParseS3Uri(const std::string &s3_uri, std::string &bucket_name,
-                std::string &object_name) {
+struct SimpleErrorModel {
+  std::string err_msg_;
+
+  const std::string &GetMessage() const { return err_msg_; }
+};
+
+struct SimpleError {
+  int code_;
+  std::string err_msg_;
+
+  const std::string &GetMessage() const {
+    return std::to_string(code_) + err_msg_;
+  }
+
+  SimpleErrorModel GetModeledError() const { return {GetMessage()}; }
+};
+
+SimpleError MakeSimpleError(const Aws::S3::S3Error &from) {
+  return {static_cast<int>(from.GetErrorType()), from.GetMessage()};
+}
+
+struct ParseUriResult {
+  std::string bucket_;
+  std::string object_;
+};
+
+template <typename R> using SimpleOutcome = Aws::Utils::Outcome<R, SimpleError>;
+
+using ParseURIOutcome = SimpleOutcome<ParseUriResult>;
+using SizeOutcome = SimpleOutcome<long long>;
+
+ParseURIOutcome ParseS3Uri(
+    const std::string
+        &s3_uri) { //, std::string &bucket_name, std::string &object_name) {
   const std::string prefix = "s3://";
-  if (s3_uri.compare(0, prefix.size(), prefix) != 0) {
-    spdlog::error("Invalid S3 URI: {}", s3_uri);
-    return false;
+  const size_t prefix_size = prefix.size();
+  if (s3_uri.compare(0, prefix_size, prefix) != 0) {
+    return SimpleError{
+        static_cast<int>(Aws::S3::S3Errors::INVALID_PARAMETER_VALUE),
+        "Invalid S3 URI: " + s3_uri}; //{"", "", "Invalid S3 URI: " + s3_uri};
+    // spdlog::error("Invalid S3 URI: {}", s3_uri);
+    // return false;
   }
 
-  std::size_t pos = s3_uri.find('/', prefix.size());
+  size_t pos = s3_uri.find('/', prefix_size);
   if (pos == std::string::npos) {
-    spdlog::error("Invalid S3 URI, missing object name: {}", s3_uri);
-    return false;
+    return SimpleError{
+        static_cast<int>(Aws::S3::S3Errors::INVALID_PARAMETER_VALUE),
+        "Invalid S3 URI, missing object name: " +
+            s3_uri}; //{"", "", "Invalid S3 URI, missing object name: " +
+                     // s3_uri};
+    // spdlog::error("Invalid S3 URI, missing object name: {}", s3_uri);
+    // return false;
   }
 
-  bucket_name = s3_uri.substr(prefix.size(), pos - prefix.size());
-  object_name = s3_uri.substr(pos + 1);
+  std::string bucket_name = s3_uri.substr(prefix_size, pos - prefix_size);
 
-  return true;
-}
-
-void FallbackToDefaultBucket(std::string &bucket_name) {
-  if (!bucket_name.empty())
-    return;
-  if (!globalBucketName.empty()) {
+  if (bucket_name.empty()) {
+    if (globalBucketName.empty()) {
+      return SimpleError{
+          static_cast<int>(Aws::S3::S3Errors::MISSING_PARAMETER),
+          "No bucket specified, and GCS_BUCKET_NAME is not set!"};
+    }
     bucket_name = globalBucketName;
-    return;
   }
-  spdlog::critical("No bucket specified, and GCS_BUCKET_NAME is not set!");
+
+  std::string object_name = s3_uri.substr(pos + 1);
+
+  return ParseUriResult{std::move(bucket_name), std::move(object_name)};
 }
+
+// void FallbackToDefaultBucket(std::string &bucket_name) {
+//   if (!bucket_name.empty())
+//     return;
+//   if (!globalBucketName.empty()) {
+//     bucket_name = globalBucketName;
+//     return;
+//   }
+//   spdlog::critical("No bucket specified, and GCS_BUCKET_NAME is not set!");
+// }
 
 std::string GetEnvironmentVariableOrDefault(const std::string &variable_name,
                                             const std::string &default_value) {
@@ -155,7 +291,14 @@ const char *driver_getScheme() { return "s3"; }
 int driver_isReadOnly() { return 0; }
 
 int driver_connect() {
-  auto loglevel = GetEnvironmentVariableOrDefault("S3_DRIVER_LOGLEVEL", "info");
+
+  auto file_exists = [](const std::string &name) {
+    std::ifstream ifile(name);
+    return (ifile.is_open());
+  };
+
+  const auto loglevel =
+      GetEnvironmentVariableOrDefault("S3_DRIVER_LOGLEVEL", "info");
   if (loglevel == "debug")
     spdlog::set_level(spdlog::level::debug);
   else if (loglevel == "trace")
@@ -175,22 +318,29 @@ int driver_connect() {
   Aws::Auth::AWSCredentials configCredentials;
   std::string userHome = GetEnvironmentVariableOrDefault("HOME", "");
   if (!userHome.empty()) {
-    std::string defaultConfig = std::filesystem::path(userHome)
-                                    .append(".aws")
-                                    .append("config")
-                                    .string();
-    std::string configFile =
+    std::ostringstream defaultConfig_os;
+    defaultConfig_os << userHome << "/.aws/config";
+    const std::string defaultConfig = defaultConfig_os.str();
+
+    // std::string defaultConfig = std::filesystem::path(userHome)
+    //                                 .append(".aws")
+    //                                 .append("config")
+    //                                 .string();
+
+    const std::string configFile =
         GetEnvironmentVariableOrDefault("AWS_CONFIG_FILE", defaultConfig);
     spdlog::debug("Conf file = {}", configFile);
 
-    if (std::filesystem::exists(std::filesystem::path(configFile))) {
-      std::string profile =
+    if (file_exists(configFile)) {
+      // if (std::filesystem::exists(std::filesystem::path(configFile))) {
+      const std::string profile =
           GetEnvironmentVariableOrDefault("AWS_PROFILE", "default");
+
       spdlog::debug("Profile = {}", profile);
-      std::string profileSection = profile;
-      if (profile != "default") {
-        profileSection = std::string("profile ") + profile;
-      }
+
+      const std::string profileSection =
+          (profile != "default") ? "profile " + profile : profile;
+
       Aws::Auth::ProfileConfigFileAWSCredentialsProvider provider(
           profile.c_str());
       configCredentials = provider.GetAWSCredentials();
@@ -231,8 +381,8 @@ int driver_connect() {
       GetEnvironmentVariableOrDefault("AWS_SECRET_ACCESS_KEY", s3secretKey);
   if ((s3accessKey != "" && s3secretKey == "") ||
       (s3accessKey == "" && s3secretKey != "")) {
-    spdlog::critical("Access key and secret configuration is only permitted "
-                     "when both values are provided.");
+    LogError("Access key and secret configuration is only permitted "
+             "when both values are provided.");
     return false;
   }
 
@@ -248,47 +398,51 @@ int driver_connect() {
   if (s3region != "") {
     clientConfig.region = s3region;
   }
-  if (s3accessKey != "") {
-    Aws::Auth::AWSCredentials credentials(s3accessKey, s3secretKey);
-    client = new Aws::S3::S3Client(credentials,
-                                   Aws::MakeShared<Aws::S3::S3EndpointProvider>(
-                                       Aws::S3::S3Client::ALLOCATION_TAG),
-                                   clientConfig);
-  } else {
-    client = new Aws::S3::S3Client(configCredentials,
-                                   Aws::MakeShared<Aws::S3::S3EndpointProvider>(
-                                       Aws::S3::S3Client::ALLOCATION_TAG),
-                                   clientConfig);
+
+  if (!s3accessKey.empty()) {
+    configCredentials = Aws::Auth::AWSCredentials(s3accessKey, s3secretKey);
   }
+  client.reset(new Aws::S3::S3Client(
+      configCredentials,
+      Aws::MakeShared<Aws::S3::S3EndpointProvider>(S3EndpointProvider),
+      clientConfig));
 
   bIsConnected = true;
   return kSuccess;
 }
 
 int driver_disconnect() {
-  int nRet = 0;
-  if (client != NULL) {
-    delete (client);
+  if (client) {
     ShutdownAPI(options);
   }
   bIsConnected = false;
-  return nRet == 0;
+  return kSuccess;
 }
 
 int driver_isConnected() { return bIsConnected; }
 
 long long int driver_getSystemPreferredBufferSize() {
-  return 4 * 1024 * 1024; // 4 Mo
+  constexpr long long buff_size = 4L * 1024L * 1024L;
+  return buff_size; // 4 Mo
 }
 
 int driver_exist(const char *filename) {
+  ERROR_ON_NULL_ARG(filename, kFalse);
+
+  const size_t size = std::strlen(filename);
+  if (0 == size) {
+    LogError("Error passing an empty name to driver_exist");
+    return kFalse;
+  }
+
   spdlog::debug("exist {}", filename);
 
-  std::string file_uri = filename;
-  spdlog::debug("exist file_uri {}", file_uri);
-  spdlog::debug("exist last char {}", file_uri.back());
+  // const std::string file_uri = filename;
+  // spdlog::debug("exist file_uri {}", file_uri);
+  const char last_char = filename[std::strlen(filename) - 1];
+  spdlog::debug("exist last char {}", last_char);
 
-  if (file_uri.back() == '/') {
+  if (last_char == '/') {
     return driver_dirExists(filename);
   } else {
     return driver_fileExists(filename);
@@ -296,47 +450,45 @@ int driver_exist(const char *filename) {
 }
 
 int driver_fileExists(const char *sFilePathName) {
+  ERROR_ON_NULL_ARG(sFilePathName, kFalse);
+
   spdlog::debug("fileExist {}", sFilePathName);
 
-  std::string bucket_name, object_name;
-  ParseS3Uri(sFilePathName, bucket_name, object_name);
-  FallbackToDefaultBucket(bucket_name);
+  // auto maybe_parsed_names = ParseS3Uri(sFilePathName);
+  // ERROR_ON_NAMES(maybe_parsed_names, kFalse);
+  // auto& parsed_names = maybe_parsed_names.GetResult();
 
-  // Configuration de la requête HEAD pour l'objet
-  Aws::S3::Model::HeadObjectRequest head_object_request;
-  head_object_request.WithBucket(bucket_name).WithKey(object_name);
+  NAMES_OR_ERROR(sFilePathName, kFalse);
 
   // Exécution de la requête HEAD
-  auto head_object_outcome = client->HeadObject(head_object_request);
-
+  const auto head_object_outcome = HeadObject(names.bucket_, names.object_);
   if (!head_object_outcome.IsSuccess()) {
+    auto &error = head_object_outcome.GetError();
     spdlog::debug("Failed retrieving file info: {} {}",
-                  int(head_object_outcome.GetError().GetErrorType()),
-                  head_object_outcome.GetError().GetMessage());
+                  static_cast<int>(error.GetErrorType()), error.GetMessage());
+
+    return kFailure;
   }
 
   // Retourne true si l'objet existe, false sinon
-  return head_object_outcome.IsSuccess();
+  return kSuccess;
 }
 
 int driver_dirExists(const char *sFilePathName) {
+  ERROR_ON_NULL_ARG(sFilePathName, kFalse);
+
   spdlog::debug("dirExist {}", sFilePathName);
 
-  return 1;
+  return kTrue;
 }
 
-long long int getFileSize(std::string bucket_name, std::string object_name) {
-  // Configuration de la requête HEAD pour l'objet
-  Aws::S3::Model::HeadObjectRequest head_object_request;
-  head_object_request.WithBucket(bucket_name).WithKey(object_name);
-
+SizeOutcome getFileSize(const std::string &bucket_name,
+                        const std::string &object_name) {
   // Exécution de la requête HEAD
-  auto head_object_outcome = client->HeadObject(head_object_request);
+  const auto head_object_outcome = HeadObject(bucket_name, object_name);
 
   if (!head_object_outcome.IsSuccess()) {
-    spdlog::error("Failed retrieving file info: {}",
-                  head_object_outcome.GetError().GetMessage());
-    return -1;
+    return MakeSimpleError(head_object_outcome.GetError());
   }
 
   // Retourne la taille de l'objet s'il existe
@@ -344,39 +496,56 @@ long long int getFileSize(std::string bucket_name, std::string object_name) {
 }
 
 long long int driver_getFileSize(const char *filename) {
+  ERROR_ON_NULL_ARG(filename, kBadSize);
+
   spdlog::debug("getFileSize {}", filename);
 
-  std::string bucket_name, object_name;
-  ParseS3Uri(filename, bucket_name, object_name);
-  FallbackToDefaultBucket(bucket_name);
+  // auto maybe_parsed_names = ParseS3Uri(filename);
+  // ERROR_ON_NAMES(maybe_parsed_names, kBadSize);
+  // auto& parsed_names = maybe_parsed_names.GetResult();
 
-  return getFileSize(bucket_name, object_name);
+  NAMES_OR_ERROR(filename, kBadSize);
+
+  auto maybe_file_size = getFileSize(names.bucket_, names.object_);
+
+  RETURN_ON_ERROR(maybe_file_size, "Error getting file size", kBadSize);
+
+  return maybe_file_size.GetResult();
 }
 
 void *driver_fopen(const char *filename, char mode) {
-  spdlog::debug("fopen {} {}", filename, mode);
-
-  std::string bucket_name, object_name;
-  ParseS3Uri(filename, bucket_name, object_name);
-  FallbackToDefaultBucket(bucket_name);
   assert(driver_isConnected());
 
+  ERROR_ON_NULL_ARG(filename, nullptr);
+
+  spdlog::debug("fopen {} {}", filename, mode);
+
+  NAMES_OR_ERROR(filename, nullptr);
+
+  // auto maybe_parsed_names = ParseS3Uri(filename);
+  // RETURN_ON_ERROR(maybe_parsed_names, "Error parsing names in fopen",
+  // nullptr); auto& names = maybe_parsed_names.GetResult();
+
   auto h = new MultiPartFile;
-  h->bucketname = bucket_name;
-  h->filename = object_name;
+  h->bucketname = names.bucket_;
+  h->filename = names.object_;
   h->offset = 0;
 
   switch (mode) {
   case 'r': {
-    if (false) /* isMultifile(object_name)*/ {
+    if (false) /* isMultifile(object_name)*/
+    {
       // TODO
       // identify files part of multifile glob pattern
       // initialize cumulative size array
       // determine if header is repeated
     } else {
-      h->filenames.push_back(object_name);
-      long long int fileSize = getFileSize(bucket_name, object_name);
-      h->cumulativeSize.push_back(fileSize);
+      h->filenames.push_back(names.object_);
+      auto maybe_filesize = getFileSize(names.bucket_, names.object_);
+      RETURN_ON_ERROR(maybe_filesize, "Error while opening file in read mode",
+                      nullptr);
+      // long long int fileSize = getFileSize(bucket_name, object_name);
+      h->cumulativeSize.push_back(maybe_filesize.GetResult());
     }
     return h;
   }
@@ -392,12 +561,14 @@ void *driver_fopen(const char *filename, char mode) {
 }
 
 int driver_fclose(void *stream) {
+  assert(driver_isConnected());
+
+  ERROR_ON_NULL_ARG(stream, kFailure);
+
   spdlog::debug("fclose {}", (void *)stream);
 
   MultiPartFile *multiFile;
 
-  assert(driver_isConnected());
-  assert(stream != NULL);
   multiFile = (MultiPartFile *)stream;
   delete ((MultiPartFile *)stream);
   return 0;
@@ -408,9 +579,10 @@ long long int totalSize(MultiPartFile *h) {
 }
 
 int driver_fseek(void *stream, long long int offset, int whence) {
+  ERROR_ON_NULL_ARG(stream, kBadSize);
+
   spdlog::debug("fseek {} {} {}", stream, offset, whence);
 
-  assert(stream != NULL);
   MultiPartFile *h = (MultiPartFile *)stream;
 
   switch (whence) {
@@ -485,16 +657,24 @@ int driver_fflush(void *stream) {
 }
 
 int driver_remove(const char *filename) {
+  assert(driver_isConnected());
+
+  ERROR_ON_NULL_ARG(filename, kFalse);
+
   spdlog::debug("remove {}", filename);
 
-  assert(driver_isConnected());
-  std::string bucket_name, object_name;
-  ParseS3Uri(filename, bucket_name, object_name);
-  FallbackToDefaultBucket(bucket_name);
+  NAMES_OR_ERROR(filename, kFalse);
+
+  // auto maybe_parsed_names = ParseS3Uri(filename);
+  // ERROR_ON_NAMES(maybe_parsed_names, kFalse);
+  // auto& names = maybe_parsed_names.GetResult();
+  // std::string bucket_name, object_name;
+  // ParseS3Uri(filename, bucket_name, object_name);
+  // FallbackToDefaultBucket(bucket_name);
 
   Aws::S3::Model::DeleteObjectRequest request;
 
-  request.WithBucket(bucket_name).WithKey(object_name);
+  request.WithBucket(names.bucket_).WithKey(names.object_);
 
   Aws::S3::Model::DeleteObjectOutcome outcome = client->DeleteObject(request);
 
@@ -508,17 +688,21 @@ int driver_remove(const char *filename) {
 }
 
 int driver_rmdir(const char *filename) {
+  assert(driver_isConnected());
+
+  ERROR_ON_NULL_ARG(filename, kFailure);
   spdlog::debug("rmdir {}", filename);
 
-  assert(driver_isConnected());
   spdlog::debug("Remove dir (does nothing...)");
-  return 1;
+  return kSuccess;
 }
 
 int driver_mkdir(const char *filename) {
+  assert(driver_isConnected());
+
+  ERROR_ON_NULL_ARG(filename, kFailure);
   spdlog::debug("mkdir {}", filename);
 
-  assert(driver_isConnected());
   return 1;
 }
 
@@ -535,13 +719,16 @@ int driver_copyToLocal(const char *sSourceFilePathName,
 
   assert(driver_isConnected());
 
-  std::string bucket_name, object_name;
-  ParseS3Uri(sSourceFilePathName, bucket_name, object_name);
-  FallbackToDefaultBucket(bucket_name);
+  ERROR_ON_NULL_ARG(sSourceFilePathName, kBadSize);
+  ERROR_ON_NULL_ARG(sDestFilePathName, kBadSize);
+  NAMES_OR_ERROR(sSourceFilePathName, kBadSize);
+  // std::string bucket_name, object_name;
+  // ParseS3Uri(sSourceFilePathName, bucket_name, object_name);
+  // FallbackToDefaultBucket(bucket_name);
 
   // Configuration de la requête pour obtenir un objet
   Aws::S3::Model::GetObjectRequest object_request;
-  object_request.WithBucket(bucket_name).WithKey(object_name);
+  object_request.WithBucket(names.bucket_).WithKey(names.object_);
 
   // Exécution de la requête
   auto get_object_outcome = client->GetObject(object_request);
@@ -575,17 +762,21 @@ int driver_copyToLocal(const char *sSourceFilePathName,
 
 int driver_copyFromLocal(const char *sSourceFilePathName,
                          const char *sDestFilePathName) {
-  spdlog::debug("copyFromLocal {} {}", sSourceFilePathName, sDestFilePathName);
-
   assert(driver_isConnected());
 
-  std::string bucket_name, object_name;
-  ParseS3Uri(sDestFilePathName, bucket_name, object_name);
-  FallbackToDefaultBucket(bucket_name);
+  ERROR_ON_NULL_ARG(sSourceFilePathName, kFailure);
+  ERROR_ON_NULL_ARG(sDestFilePathName, kFailure);
+
+  spdlog::debug("copyFromLocal {} {}", sSourceFilePathName, sDestFilePathName);
+
+  NAMES_OR_ERROR(sDestFilePathName, kFailure);
+  // std::string bucket_name, object_name;
+  // ParseS3Uri(sDestFilePathName, bucket_name, object_name);
+  // FallbackToDefaultBucket(bucket_name);
 
   // Configuration de la requête pour envoyer l'objet
   Aws::S3::Model::PutObjectRequest object_request;
-  object_request.WithBucket(bucket_name).WithKey(object_name);
+  object_request.WithBucket(names.bucket_).WithKey(names.object_);
 
   // Chargement du fichier dans un flux d'entrée
   std::shared_ptr<Aws::IOStream> input_data =
