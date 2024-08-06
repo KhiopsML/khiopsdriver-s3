@@ -32,7 +32,8 @@ target_compile_options(
 target_include_directories(
   basic_test
   PRIVATE ${${PROJECT_NAME}_SOURCE_DIR}/src
-  PRIVATE ${AWSSDK_INCLUDE_DIRS})
+  PRIVATE ${AWSSDK_INCLUDE_DIRS}
+  PRIVATE ${${PROJECT_NAME}_SOURCE_DIR}/src/contrib)
 target_link_libraries(basic_test PRIVATE ${AWSSDK_LIBRARIES})
 
 target_link_libraries(basic_test PRIVATE GTest::gtest GTest::gmock
