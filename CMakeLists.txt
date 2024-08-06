@@ -11,8 +11,8 @@ if(DEFINED ENV{VCPKG_DEFAULT_TRIPLET} AND NOT DEFINED VCPKG_TARGET_TRIPLET)
 endif()
 
 cmake_minimum_required(VERSION 3.20)
-# Enforce c++17 standard.
-set(CMAKE_CXX_STANDARD 17)
+# Enforce c++11 standard.
+set(CMAKE_CXX_STANDARD 11)
 
 project(khiops-s3 LANGUAGES CXX)
 
