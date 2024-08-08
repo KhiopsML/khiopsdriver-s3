@@ -59,6 +59,10 @@ struct MultiPartFile
 	std::vector<long long int> cumulativeSize;
 };
 
+using ReaderPtr = std::unique_ptr<MultiPartFile>;
+
+using HandleContainer = std::vector<ReaderPtr>;
+
 std::string last_error;
 
 constexpr const char* nullptr_msg_stub = "Error passing null pointer to ";
@@ -236,6 +240,16 @@ struct SimpleError
 	}
 };
 
+SimpleError MakeSimpleError(Aws::S3::S3Errors err_code, std::string&& err_msg)
+{
+	return {static_cast<int>(err_code), std::move(err_msg)};
+}
+
+SimpleError MakeSimpleError(Aws::S3::S3Errors err_code, const char* err_msg)
+{
+	return {static_cast<int>(err_code), err_msg};
+}
+
 SimpleError MakeSimpleError(const Aws::S3::S3Error& from)
 {
 	return {static_cast<int>(from.GetErrorType()), from.GetMessage()};
@@ -399,6 +413,11 @@ FilterOutcome FilterList(const std::string& bucket, const std::string& pattern, 
 
 	return res;
 }
+
+#define KH_S3_FILTER_LIST(var, bucket, pattern, prefix_start)                                                          \
+	auto var##_outcome = FilterList(bucket, pattern, prefix_start);                                                \
+	PASS_OUTCOME_ON_ERROR(var##_outcome);                                                                          \
+	ObjectsVec& var = var##_outcome.GetResult();
 
 // Implementation of driver functions
 
@@ -625,7 +644,7 @@ int driver_fileExists(const char* sFilePathName)
 	auto filter_list_outcome = FilterList(names.bucket_, names.object_, prefix_idx);
 	RETURN_ON_ERROR(filter_list_outcome, "Error while filtering object list", kFalse);
 
-	return !filter_list_outcome.GetResult().empty() ? kFalse : kTrue;
+	return filter_list_outcome.GetResult().empty() ? kFalse : kTrue;
 
 	// auto list_objects_outcome = ListObjects(names.bucket_, names.object_.substr(prefix_idx));
 	// RETURN_ON_ERROR(list_objects_outcome, "Error while listing objects", kSuccess);
@@ -654,14 +673,34 @@ SizeOutcome GetOneFileSize(const std::string& bucket, const std::string& object)
 	return head_object_outcome.GetResult().GetContentLength();
 }
 
-void ReadHeader(const std::string& bucket, S3Object& obj)
+SimpleOutcome<std::string> ReadHeader(const std::string& bucket, const S3Object& obj)
 {
 	auto request = MakeGetObjectRequest(bucket, obj.GetKey());
 	auto outcome = client->GetObject(request);
 	IF_ERROR(outcome) {}
 	// Aws::IOStream& read_stream = outcome.GetResultWithOwnership().GetBody();
 	Aws::IOStream& read_stream = outcome.GetResult().GetBody();
+	std::string line;
+	std::getline(read_stream, line);
+	if (read_stream.bad())
+	{
+		return MakeSimpleError(Aws::S3::S3Errors::INTERNAL_FAILURE, "header read failed");
+	}
+	if (!read_stream.eof())
+	{
+		line.push_back('\n');
+	}
+	if (line.empty())
+	{
+		return MakeSimpleError(Aws::S3::S3Errors::INTERNAL_FAILURE, "Empty header");
+	}
+	return line;
 }
+
+#define KH_S3_READ_HEADER(var, bucket, obj)                                                                            \
+	auto var##_outcome = ReadHeader((bucket), (obj));                                                              \
+	PASS_OUTCOME_ON_ERROR(var##_outcome);                                                                          \
+	const std::string& var = var##_outcome.GetResult();
 
 SizeOutcome getFileSize(const std::string& bucket_name, const std::string& object_name)
 {
@@ -676,14 +715,56 @@ SizeOutcome getFileSize(const std::string& bucket_name, const std::string& objec
 		return GetOneFileSize(bucket_name, object_name);
 	}
 
-	auto file_list_outcome = FilterList(bucket_name, object_name, prefix_idx);
-	PASS_OUTCOME_ON_ERROR(file_list_outcome);
-	ObjectsVec& file_list = file_list_outcome.GetResult();
+	KH_S3_FILTER_LIST(file_list, bucket_name, object_name,
+			  prefix_idx); // !! puts file_list and file_list_outcome into scope
+
+	// auto file_list_outcome = FilterList(bucket_name, object_name, prefix_idx);
+	// PASS_OUTCOME_ON_ERROR(file_list_outcome);
+	// ObjectsVec& file_list = file_list_outcome.GetResult();
 
 	// get the size of the first file
 	auto list_it = file_list.begin();
-	long long total_size = list_it->GetSize();
+	const S3Object& file = *list_it;
+	long long total_size = file.GetSize();
 	// read the size of the header
+	// auto header_outcome = ReadHeader(bucket_name, file);
+	// PASS_OUTCOME_ON_ERROR(header_outcome);
+	// const std::string& header = header_outcome.GetResult();
+
+	KH_S3_READ_HEADER(header, bucket_name, file); // !! puts header and outcome_header into scope
+
+	const size_t header_size = header.size();
+
+	// scan the next files and adjust effective size if header is repeated
+	int nb_headers_to_subtract = 0;
+	bool same_header = true;
+	const auto list_end = file_list.cend();
+	list_it++;
+	for (; list_it != list_end; list_it++)
+	{
+		S3Object& curr_file = *list_it;
+		if (same_header)
+		{
+			KH_S3_READ_HEADER(curr_header, bucket_name,
+					  curr_file); // !! puts curr_header_outcome and curr_header into scope
+			// auto curr_header_outcome = ReadHeader(bucket_name, *list_it);
+			// PASS_OUTCOME_ON_ERROR(curr_header_outcome);
+			// const std::string& curr_header = curr_header_outcome.GetResult();
+
+			same_header = (header == curr_header);
+			if (same_header)
+			{
+				nb_headers_to_subtract++;
+			}
+		}
+		total_size += curr_file.GetSize();
+	}
+
+	if (!same_header)
+	{
+		nb_headers_to_subtract = 0;
+	}
+	return total_size - nb_headers_to_subtract * header_size;
 }
 
 long long int driver_getFileSize(const char* filename)
@@ -703,6 +784,97 @@ long long int driver_getFileSize(const char* filename)
 	RETURN_ON_ERROR(maybe_file_size, "Error getting file size", kBadSize);
 
 	return maybe_file_size.GetResult();
+}
+
+SimpleOutcome<ReaderPtr> MakeReaderPtr(std::string bucketname, std::string objectname)
+{
+	std::vector<std::string> filenames;
+	std::vector<long long> cumulativeSize;
+
+	// auto push_back_data = [&](gcs::ListObjectsIterator &list_it)
+	// {
+	//     filenames.push_back((*list_it)->name());
+	//     long long size = static_cast<long long>((*list_it)->size());
+	//     if (!cumulativeSize.empty())
+	//     {
+	//         size += cumulativeSize.back();
+	//     }
+	//     cumulativeSize.push_back(size);
+	// };
+
+	size_t prefix_idx = 0;
+	if (!IsMultifile(objectname, prefix_idx))
+	{
+		// create a Multifile with a single file
+		auto size_outcome = GetOneFileSize(bucketname, objectname);
+		PASS_OUTCOME_ON_ERROR(size_outcome);
+		long long size = size_outcome.GetResult();
+
+		return ReaderPtr(
+		    new MultiPartFile{std::move(bucketname), std::move(objectname), 0, 0, {objectname}, {size}});
+	}
+
+	// auto maybe_list = ListObjects(bucketname, objectname);
+	// RETURN_STATUS_ON_ERROR(maybe_list);
+
+	// auto list_it = maybe_list->begin();
+	// const auto list_end = maybe_list->end();
+
+	// push_back_data(list_it);
+
+	// list_it++;
+	// if (list_end == list_it)
+	// {
+	//     // unique file
+	//     const tOffset total_size = cumulativeSize.back();
+	//     return ReaderPtr(new MultiPartFile{
+	//         std::move(bucketname),
+	//         std::move(objectname),
+	//         0,
+	//         0,
+	//         std::move(filenames),
+	//         std::move(cumulativeSize),
+	//         total_size});
+	// }
+
+	// // multifile
+	// // check headers
+	// auto maybe_header = ReadHeader(bucketname, filenames.front());
+	// RETURN_STATUS_ON_ERROR(maybe_header);
+
+	// const std::string& header = *maybe_header;
+	// const long long header_size = static_cast<long long>(header.size());
+	// bool same_header{true};
+
+	// for (; list_it != list_end; list_it++)
+	// {
+	//     RETURN_STATUS_ON_ERROR(*list_it);
+
+	//     push_back_data(list_it);
+
+	//     if (same_header)
+	//     {
+	//         auto maybe_curr_header = ReadHeader(bucketname, filenames.back());
+	//         RETURN_STATUS_ON_ERROR(maybe_curr_header);
+
+	//         same_header = (header == *maybe_curr_header);
+	//         if (same_header)
+	//         {
+	//             cumulativeSize.back() -= header_size;
+	//         }
+	//     }
+	// }
+
+	// tOffset total_size = cumulativeSize.back();
+
+	// return ReaderPtr(new MultiPartFile{
+	//     std::move(bucketname),
+	//     std::move(objectname),
+	//     0,
+	//     same_header ? header_size : 0,
+	//     std::move(filenames),
+	//     std::move(cumulativeSize),
+	//     total_size});
 }
 
 void* driver_fopen(const char* filename, char mode)
