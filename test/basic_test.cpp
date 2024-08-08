@@ -84,10 +84,9 @@ TEST(S3DriverMatchingUtilityTest, SimpleWildCard) {
 TEST(S3DriverMatchingUtilityTest, MultiCharWildCard) {
   const std::string pattern = "s3://path/to/dir/*.txt";
 
-  const std::vector<std::string> must_match = {"s3://path/to/dir/a.txt",
-                                               "s3://path/to/dir/aa.txt",
-                                               "s3://path/to/dir/1.txt"
-                                               "s3://path/to/dir/00.txt"};
+  const std::vector<std::string> must_match = {
+      "s3://path/to/dir/a.txt", "s3://path/to/dir/aa.txt",
+      "s3://path/to/dir/1.txt", "s3://path/to/dir/00.txt"};
 
   const std::vector<std::string> no_match = {
       "", " ", "off_topic",
