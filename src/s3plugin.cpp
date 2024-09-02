@@ -326,7 +326,7 @@ std::string GetEnvironmentVariableOrDefault(const std::string& variable_name, co
 	return value ? value : default_value;
 }
 
-bool IsMultifile(const std::string& pattern, size_t& special_char_idx)
+bool IsMultifile(const std::string& pattern, size_t& first_special_char_idx)
 {
 	spdlog::debug("Parse multifile pattern {}", pattern);
 
@@ -348,7 +348,7 @@ bool IsMultifile(const std::string& pattern, size_t& special_char_idx)
 		else
 		{
 			spdlog::debug("not preceded by a \\, so really a special char");
-			special_char_idx = found_at;
+			first_special_char_idx = found_at;
 			return true;
 		}
 	}
@@ -385,12 +385,15 @@ Aws::S3::Model::ListObjectsV2Outcome ListObjects(const std::string& bucket, cons
 	return client->ListObjectsV2(request);
 }
 
-FilterOutcome FilterList(const std::string& bucket, const std::string& pattern, size_t prefix_start)
+// Get from a bucket a list of objects matching a name pattern.
+// To get a limited list of objects to filter per request, the request includes a well defined
+// prefix contained in the pattern
+FilterOutcome FilterList(const std::string& bucket, const std::string& pattern, size_t pattern_1st_sp_char_pos)
 {
 	ObjectsVec res;
 
 	Aws::S3::Model::ListObjectsV2Request request;
-	request.WithBucket(bucket).WithPrefix(pattern.substr(prefix_start)).WithDelimiter("");
+	request.WithBucket(bucket).WithPrefix(pattern.substr(0, pattern_1st_sp_char_pos)); //.WithDelimiter("");
 	Aws::String continuation_token;
 
 	do
@@ -414,8 +417,8 @@ FilterOutcome FilterList(const std::string& bucket, const std::string& pattern, 
 	return res;
 }
 
-#define KH_S3_FILTER_LIST(var, bucket, pattern, prefix_start)                                                          \
-	auto var##_outcome = FilterList(bucket, pattern, prefix_start);                                                \
+#define KH_S3_FILTER_LIST(var, bucket, pattern, pattern_1st_sp_char_pos)                                               \
+	auto var##_outcome = FilterList(bucket, pattern, pattern_1st_sp_char_pos);                                     \
 	PASS_OUTCOME_ON_ERROR(var##_outcome);                                                                          \
 	ObjectsVec& var = var##_outcome.GetResult();
 
@@ -623,8 +626,8 @@ int driver_fileExists(const char* sFilePathName)
 
 	NAMES_OR_ERROR(sFilePathName, kFalse);
 
-	size_t prefix_idx = 0;
-	if (!IsMultifile(names.object_, prefix_idx))
+	size_t pattern_1st_sp_char_pos = 0;
+	if (!IsMultifile(names.object_, pattern_1st_sp_char_pos))
 	{
 		//go ahead with the simple request
 		const auto head_object_outcome = HeadObject(names.bucket_, names.object_);
@@ -641,7 +644,7 @@ int driver_fileExists(const char* sFilePathName)
 	}
 
 	// get a filtered list of the bucket files that match the pattern
-	auto filter_list_outcome = FilterList(names.bucket_, names.object_, prefix_idx);
+	auto filter_list_outcome = FilterList(names.bucket_, names.object_, pattern_1st_sp_char_pos);
 	RETURN_ON_ERROR(filter_list_outcome, "Error while filtering object list", kFalse);
 
 	return filter_list_outcome.GetResult().empty() ? kFalse : kTrue;
@@ -707,16 +710,15 @@ SizeOutcome getFileSize(const std::string& bucket_name, const std::string& objec
 	// tweak the request for the object. if the object parameter is in fact a pattern,
 	// the pattern could point to a list of objects that constitute a whole file
 
-	size_t prefix_idx = 0;
-	const bool is_multifile = IsMultifile(object_name, prefix_idx);
-	if (!is_multifile)
+	size_t pattern_1st_sp_char_pos = 0;
+	if (!IsMultifile(object_name, pattern_1st_sp_char_pos))
 	{
 		//go ahead with the simple request
 		return GetOneFileSize(bucket_name, object_name);
 	}
 
 	KH_S3_FILTER_LIST(file_list, bucket_name, object_name,
-			  prefix_idx); // !! puts file_list and file_list_outcome into scope
+			  pattern_1st_sp_char_pos); // !! puts file_list and file_list_outcome into scope
 
 	// auto file_list_outcome = FilterList(bucket_name, object_name, prefix_idx);
 	// PASS_OUTCOME_ON_ERROR(file_list_outcome);
@@ -802,13 +804,13 @@ SimpleOutcome<ReaderPtr> MakeReaderPtr(std::string bucketname, std::string objec
 	//     cumulativeSize.push_back(size);
 	// };
 
-	size_t prefix_idx = 0;
-	if (!IsMultifile(objectname, prefix_idx))
+	size_t pattern_1st_sp_char_pos = 0;
+	if (!IsMultifile(objectname, pattern_1st_sp_char_pos))
 	{
 		// create a Multifile with a single file
-		auto size_outcome = GetOneFileSize(bucketname, objectname);
+		const auto size_outcome = GetOneFileSize(bucketname, objectname);
 		PASS_OUTCOME_ON_ERROR(size_outcome);
-		long long size = size_outcome.GetResult();
+		const long long size = size_outcome.GetResult();
 
 		return ReaderPtr(
 		    new MultiPartFile{std::move(bucketname), std::move(objectname), 0, 0, {objectname}, {size}});
