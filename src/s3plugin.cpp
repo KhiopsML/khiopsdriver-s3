@@ -402,12 +402,12 @@ FilterOutcome FilterList(const std::string& bucket, const std::string& pattern, 
 		{
 			request.SetContinuationToken(continuation_token);
 		}
-		Aws::S3::Model::ListObjectsV2Outcome outcome = client->ListObjectsV2(request);
+		const Aws::S3::Model::ListObjectsV2Outcome outcome = client->ListObjectsV2(request);
 
 		RETURN_OUTCOME_ON_ERROR(outcome);
 
-		auto& list_result = outcome.GetResult();
-		auto& objects = list_result.GetContents();
+		const auto& list_result = outcome.GetResult();
+		const auto& objects = list_result.GetContents();
 		std::copy_if(objects.begin(), objects.end(), std::back_inserter(res),
 			     [&](const S3Object& obj) { return utils::gitignore_glob_match(obj.GetKey(), pattern); });
 		continuation_token = list_result.GetContinuationToken();
@@ -418,9 +418,9 @@ FilterOutcome FilterList(const std::string& bucket, const std::string& pattern, 
 }
 
 #define KH_S3_FILTER_LIST(var, bucket, pattern, pattern_1st_sp_char_pos)                                               \
-	auto var##_outcome = FilterList(bucket, pattern, pattern_1st_sp_char_pos);                                     \
+	const auto var##_outcome = FilterList(bucket, pattern, pattern_1st_sp_char_pos);                               \
 	PASS_OUTCOME_ON_ERROR(var##_outcome);                                                                          \
-	ObjectsVec& var = var##_outcome.GetResult();
+	const ObjectsVec& var = var##_outcome.GetResult();
 
 // Implementation of driver functions
 
@@ -701,7 +701,7 @@ SimpleOutcome<std::string> ReadHeader(const std::string& bucket, const S3Object&
 }
 
 #define KH_S3_READ_HEADER(var, bucket, obj)                                                                            \
-	auto var##_outcome = ReadHeader((bucket), (obj));                                                              \
+	const auto var##_outcome = ReadHeader((bucket), (obj));                                                        \
 	PASS_OUTCOME_ON_ERROR(var##_outcome);                                                                          \
 	const std::string& var = var##_outcome.GetResult();
 
@@ -725,33 +725,30 @@ SizeOutcome getFileSize(const std::string& bucket_name, const std::string& objec
 	// ObjectsVec& file_list = file_list_outcome.GetResult();
 
 	// get the size of the first file
-	auto list_it = file_list.begin();
-	const S3Object& file = *list_it;
-	long long total_size = file.GetSize();
+	const S3Object& first_file = file_list.front();
+	long long total_size = first_file.GetSize();
+
 	// read the size of the header
+
 	// auto header_outcome = ReadHeader(bucket_name, file);
 	// PASS_OUTCOME_ON_ERROR(header_outcome);
 	// const std::string& header = header_outcome.GetResult();
 
-	KH_S3_READ_HEADER(header, bucket_name, file); // !! puts header and outcome_header into scope
+	KH_S3_READ_HEADER(header, bucket_name, first_file); // !! puts header and outcome_header into scope
 
 	const size_t header_size = header.size();
 
 	// scan the next files and adjust effective size if header is repeated
 	int nb_headers_to_subtract = 0;
 	bool same_header = true;
-	const auto list_end = file_list.cend();
-	list_it++;
-	for (; list_it != list_end; list_it++)
+
+	for (size_t i = 1; i < file_list.size(); i++)
 	{
-		S3Object& curr_file = *list_it;
+		const S3Object& curr_file = file_list[i];
 		if (same_header)
 		{
 			KH_S3_READ_HEADER(curr_header, bucket_name,
 					  curr_file); // !! puts curr_header_outcome and curr_header into scope
-			// auto curr_header_outcome = ReadHeader(bucket_name, *list_it);
-			// PASS_OUTCOME_ON_ERROR(curr_header_outcome);
-			// const std::string& curr_header = curr_header_outcome.GetResult();
 
 			same_header = (header == curr_header);
 			if (same_header)
@@ -775,14 +772,8 @@ long long int driver_getFileSize(const char* filename)
 
 	spdlog::debug("getFileSize {}", filename);
 
-	// auto maybe_parsed_names = ParseS3Uri(filename);
-	// ERROR_ON_NAMES(maybe_parsed_names, kBadSize);
-	// auto& parsed_names = maybe_parsed_names.GetResult();
-
 	NAMES_OR_ERROR(filename, kBadSize);
-
-	auto maybe_file_size = getFileSize(names.bucket_, names.object_);
-
+	const auto maybe_file_size = getFileSize(names.bucket_, names.object_);
 	RETURN_ON_ERROR(maybe_file_size, "Error getting file size", kBadSize);
 
 	return maybe_file_size.GetResult();
