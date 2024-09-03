@@ -3,9 +3,11 @@
 #endif
 
 #include "s3plugin.h"
+#include "s3plugin_internal.h"
 #include "contrib/matching.h"
+
 #include "spdlog/spdlog.h"
-#include <assert.h>
+
 #include <aws/core/Aws.h>
 #include <aws/core/auth/AWSCredentials.h>
 #include <aws/core/auth/AWSCredentialsProvider.h>
@@ -15,54 +17,30 @@
 #include <aws/s3/model/HeadObjectRequest.h>
 #include <aws/s3/model/ListObjectsV2Request.h>
 #include <aws/s3/model/PutObjectRequest.h>
+
+#include "ini.h"
+
 #include <algorithm>
+#include <assert.h>
 #include <fstream>
 #include <iostream>
 #include <memory>
 #include <sstream>
 #include <string>
 
-#include "ini.h"
-// #include <filesystem>
+using namespace s3plugin;
 
 using S3Object = Aws::S3::Model::Object;
-
-constexpr int kSuccess{1};
-constexpr int kFailure{0};
-
-constexpr int kFalse{0};
-constexpr int kTrue{1};
-
-constexpr long long kBadSize{-1};
 
 int bIsConnected = false;
 
 constexpr const char* S3EndpointProvider = "KHIOPS_ML_S3";
 
 Aws::SDKOptions options;
-// Aws::S3::S3Client *client = NULL;
 std::unique_ptr<Aws::S3::S3Client> client;
 
 // Global bucket name
 std::string globalBucketName = "";
-
-typedef long long int tOffset;
-
-struct MultiPartFile
-{
-	std::string bucketname;
-	std::string filename;
-	tOffset offset;
-	// Added for multifile support
-	tOffset commonHeaderLength;
-	std::vector<std::string> filenames;
-	std::vector<long long int> cumulativeSize;
-	tOffset total_size;
-};
-
-using ReaderPtr = std::unique_ptr<MultiPartFile>;
-
-using HandleContainer = std::vector<ReaderPtr>;
 
 HandleContainer active_handles;
 
@@ -907,7 +885,7 @@ int driver_fclose(void* stream)
 
 long long int totalSize(MultiPartFile* h)
 {
-	return h->cumulativeSize[h->cumulativeSize.size() - 1];
+	return h->cumulative_sizes_[h->cumulative_sizes_.size() - 1];
 }
 
 int driver_fseek(void* stream, long long int offset, int whence)
@@ -921,17 +899,17 @@ int driver_fseek(void* stream, long long int offset, int whence)
 	switch (whence)
 	{
 	case std::ios::beg:
-		h->offset = offset;
+		h->offset_ = offset;
 		return 0;
 	case std::ios::cur:
 	{
-		auto computedOffset = h->offset + offset;
+		auto computedOffset = h->offset_ + offset;
 		if (computedOffset < 0)
 		{
 			spdlog::critical("Invalid seek offset {}", computedOffset);
 			return -1;
 		}
-		h->offset = computedOffset;
+		h->offset_ = computedOffset;
 		return 0;
 	}
 	case std::ios::end:
@@ -942,7 +920,7 @@ int driver_fseek(void* stream, long long int offset, int whence)
 			spdlog::critical("Invalid seek offset {}", computedOffset);
 			return -1;
 		}
-		h->offset = computedOffset;
+		h->offset_ = computedOffset;
 		return 0;
 	}
 	default:
@@ -967,13 +945,13 @@ long long int driver_fread(void* ptr, size_t size, size_t count, void* stream)
 
 	// TODO: handle multifile case
 	auto toRead = size * count;
-	spdlog::debug("offset = {} toRead = {}", h->offset, toRead);
+	spdlog::debug("offset = {} toRead = {}", h->offset_, toRead);
 
-	auto num_read =
-	    DownloadFileRangeToBuffer(h->bucketname, h->filename, (char*)ptr, toRead, h->offset, h->offset + toRead);
+	auto num_read = DownloadFileRangeToBuffer(h->bucketname_, h->filename_, (char*)ptr, toRead, h->offset_,
+						  h->offset_ + toRead);
 
 	if (num_read != -1)
-		h->offset += num_read;
+		h->offset_ += num_read;
 	return num_read;
 }
 
@@ -984,7 +962,7 @@ long long int driver_fwrite(const void* ptr, size_t size, size_t count, void* st
 	assert(stream != NULL);
 	MultiPartFile* h = (MultiPartFile*)stream;
 
-	UploadBuffer(h->bucketname, h->filename, (char*)ptr, size * count);
+	UploadBuffer(h->bucketname_, h->filename_, (char*)ptr, size * count);
 
 	// TODO proper error handling...
 	return size * count;
