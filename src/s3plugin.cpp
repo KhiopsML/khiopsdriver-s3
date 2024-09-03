@@ -57,11 +57,14 @@ struct MultiPartFile
 	tOffset commonHeaderLength;
 	std::vector<std::string> filenames;
 	std::vector<long long int> cumulativeSize;
+	tOffset total_size;
 };
 
 using ReaderPtr = std::unique_ptr<MultiPartFile>;
 
 using HandleContainer = std::vector<ReaderPtr>;
+
+HandleContainer active_handles;
 
 std::string last_error;
 
@@ -781,20 +784,6 @@ long long int driver_getFileSize(const char* filename)
 
 SimpleOutcome<ReaderPtr> MakeReaderPtr(std::string bucketname, std::string objectname)
 {
-	std::vector<std::string> filenames;
-	std::vector<long long> cumulativeSize;
-
-	// auto push_back_data = [&](gcs::ListObjectsIterator &list_it)
-	// {
-	//     filenames.push_back((*list_it)->name());
-	//     long long size = static_cast<long long>((*list_it)->size());
-	//     if (!cumulativeSize.empty())
-	//     {
-	//         size += cumulativeSize.back();
-	//     }
-	//     cumulativeSize.push_back(size);
-	// };
-
 	size_t pattern_1st_sp_char_pos = 0;
 	if (!IsMultifile(objectname, pattern_1st_sp_char_pos))
 	{
@@ -804,70 +793,74 @@ SimpleOutcome<ReaderPtr> MakeReaderPtr(std::string bucketname, std::string objec
 		const long long size = size_outcome.GetResult();
 
 		return ReaderPtr(
-		    new MultiPartFile{std::move(bucketname), std::move(objectname), 0, 0, {objectname}, {size}});
+		    new MultiPartFile{std::move(bucketname), std::move(objectname), 0, 0, {objectname}, {size}, size});
 	}
 
-	// auto maybe_list = ListObjects(bucketname, objectname);
-	// RETURN_STATUS_ON_ERROR(maybe_list);
+	// this is a multifile. the reader object needs the list of filenames matching the globbing pattern and their
+	// metadata, mainly their respective sizes.
 
-	// auto list_it = maybe_list->begin();
-	// const auto list_end = maybe_list->end();
+	// Note: getting the metadata involves a tradeoff between memory size of the data kept and the amount of data copied:
+	// storing only the relevant data in the MultiPartFile struct requires another copy of each object name, since the API
+	// does not allow moving from its own Object types. These copies could be avoided by keeping the entire list of Objects,
+	// at the cost of the space used by the other metadata. The implementation here will save that space.
 
-	// push_back_data(list_it);
+	KH_S3_FILTER_LIST(file_list, bucketname, objectname,
+			  pattern_1st_sp_char_pos); // !! file_list and file_list_outcome now in scope
 
-	// list_it++;
-	// if (list_end == list_it)
-	// {
-	//     // unique file
-	//     const tOffset total_size = cumulativeSize.back();
-	//     return ReaderPtr(new MultiPartFile{
-	//         std::move(bucketname),
-	//         std::move(objectname),
-	//         0,
-	//         0,
-	//         std::move(filenames),
-	//         std::move(cumulativeSize),
-	//         total_size});
-	// }
+	const size_t file_count = file_list.size();
+	std::vector<std::string> filenames(file_count);
+	std::vector<long long> cumulative_size(file_count);
 
-	// // multifile
-	// // check headers
-	// auto maybe_header = ReadHeader(bucketname, filenames.front());
-	// RETURN_STATUS_ON_ERROR(maybe_header);
+	// get metadata from the first file
+	const auto& first_file = file_list.front();
+	filenames.front() = first_file.GetKey();
+	cumulative_size.front() = first_file.GetSize();
+	tOffset common_header_length = 0;
 
-	// const std::string& header = *maybe_header;
-	// const long long header_size = static_cast<long long>(header.size());
-	// bool same_header{true};
+	if (1 == file_count)
+	{
+		// unique file, make the result
+		goto make_struct;
+	}
 
-	// for (; list_it != list_end; list_it++)
-	// {
-	//     RETURN_STATUS_ON_ERROR(*list_it);
+	{ // block scope needed by goto jump above, otherwise the compiler complains about the local variables
+		bool same_header = true;
 
-	//     push_back_data(list_it);
+		// more than one file, the headers need to be checked
+		KH_S3_READ_HEADER(header, bucketname, first_file); // !! puts header and header_outcome into scope
+		tOffset header_length = static_cast<tOffset>(header.size());
 
-	//     if (same_header)
-	//     {
-	//         auto maybe_curr_header = ReadHeader(bucketname, filenames.back());
-	//         RETURN_STATUS_ON_ERROR(maybe_curr_header);
+		for (size_t i = 1; i < file_count; i++)
+		{
+			const auto& curr_file = file_list[i];
+			filenames[i] = curr_file.GetKey();
+			cumulative_size[i] = cumulative_size[i - 1] + curr_file.GetSize();
 
-	//         same_header = (header == *maybe_curr_header);
-	//         if (same_header)
-	//         {
-	//             cumulativeSize.back() -= header_size;
-	//         }
-	//     }
-	// }
+			if (same_header)
+			{
+				// continue checking the header of the file:
+				KH_S3_READ_HEADER(curr_header, bucketname,
+						  curr_file); // !! puts curr_header and curr_header_outcome into scope
+				same_header = (curr_header == header);
+			}
+		}
 
-	// tOffset total_size = cumulativeSize.back();
+		// if headers remained the same, adjust the cumulative sizes
+		if (same_header)
+		{
+			common_header_length = header_length;
+			for (size_t i = 1; i < file_count; i++)
+			{
+				cumulative_size[i] -= (i * common_header_length);
+			}
+		}
+	}
 
-	// return ReaderPtr(new MultiPartFile{
-	//     std::move(bucketname),
-	//     std::move(objectname),
-	//     0,
-	//     same_header ? header_size : 0,
-	//     std::move(filenames),
-	//     std::move(cumulativeSize),
-	//     total_size});
+// construct the result
+make_struct:
+	const tOffset total_size = cumulative_size.back(); // keep it now, cumulative_size will be moved from
+	return ReaderPtr(new MultiPartFile{std::move(bucketname), std::move(objectname), 0, common_header_length,
+					   std::move(filenames), std::move(cumulative_size), total_size});
 }
 
 void* driver_fopen(const char* filename, char mode)
@@ -880,44 +873,20 @@ void* driver_fopen(const char* filename, char mode)
 
 	NAMES_OR_ERROR(filename, nullptr);
 
-	// auto maybe_parsed_names = ParseS3Uri(filename);
-	// RETURN_ON_ERROR(maybe_parsed_names, "Error parsing names in fopen",
-	// nullptr); auto& names = maybe_parsed_names.GetResult();
-
-	auto h = new MultiPartFile;
-	h->bucketname = names.bucket_;
-	h->filename = names.object_;
-	h->offset = 0;
-
 	switch (mode)
 	{
 	case 'r':
 	{
-		if (false) /* isMultifile(object_name)*/
-		{
-			// TODO
-			// identify files part of multifile glob pattern
-			// initialize cumulative size array
-			// determine if header is repeated
-		}
-		else
-		{
-			h->filenames.push_back(names.object_);
-			auto maybe_filesize = getFileSize(names.bucket_, names.object_);
-			RETURN_ON_ERROR(maybe_filesize, "Error while opening file in read mode", nullptr);
-			// long long int fileSize = getFileSize(bucket_name, object_name);
-			h->cumulativeSize.push_back(maybe_filesize.GetResult());
-		}
-		return h;
+		auto outcome = MakeReaderPtr(std::move(names.bucket_), std::move(names.object_));
+		RETURN_ON_ERROR(outcome, "Error while opening reader stream", nullptr);
+		active_handles.push_back(outcome.GetResultWithOwnership());
+		return active_handles.back().get();
 	}
 	case 'w':
-		return h;
-
 	case 'a':
-
 	default:
-		spdlog::error("Invalid open mode {}", mode);
-		return 0;
+		LogError("Invalid open mode " + mode);
+		return nullptr;
 	}
 }
 
