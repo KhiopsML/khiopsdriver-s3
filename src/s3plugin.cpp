@@ -804,13 +804,8 @@ SimpleOutcome<ReaderPtr> MakeReaderPtr(std::string bucketname, std::string objec
 	cumulative_size.front() = first_file.GetSize();
 	tOffset common_header_length = 0;
 
-	if (1 == file_count)
+	if (file_count > 1)
 	{
-		// unique file, make the result
-		goto make_struct;
-	}
-
-	{ // block scope needed by goto jump above, otherwise the compiler complains about the local variables
 		bool same_header = true;
 
 		// more than one file, the headers need to be checked
@@ -843,8 +838,7 @@ SimpleOutcome<ReaderPtr> MakeReaderPtr(std::string bucketname, std::string objec
 		}
 	}
 
-// construct the result
-make_struct:
+	// construct the result
 	const tOffset total_size = cumulative_size.back(); // keep it now, cumulative_size will be moved from
 	return ReaderPtr(new MultiPartFile{std::move(bucketname), std::move(objectname), 0, common_header_length,
 					   std::move(filenames), std::move(cumulative_size), total_size});
