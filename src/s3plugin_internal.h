@@ -35,3 +35,40 @@ using ReaderPtr = std::unique_ptr<MultiPartFile>;
 
 using HandleContainer = std::vector<ReaderPtr>;
 } // namespace s3plugin
+
+// Driver state manipulations for tests
+
+#include <aws/s3/S3Client.h>
+
+#if defined(__unix__) || defined(__unix) || (defined(__APPLE__) && defined(__MACH__))
+#define __unix_or_mac__
+#else
+#define __windows__
+#endif
+
+#ifdef __unix_or_mac__
+#define VISIBLE __attribute__((visibility("default")))
+#else
+/* Windows Visual C++ only */
+#define VISIBLE __declspec(dllexport)
+#endif
+
+/* Use of C linkage from C++ */
+#ifdef __cplusplus
+extern "C"
+{
+#endif /* __cplusplus */
+
+	VISIBLE void test_setClient(Aws::S3::S3Client* mock_client);
+
+	VISIBLE void test_unsetClient();
+
+	VISIBLE void test_clearHandles();
+
+	VISIBLE void test_cleanupClient();
+
+	VISIBLE void* test_getActiveHandles();
+
+#ifdef __cplusplus
+} /* extern "C" */
+#endif /* __cplusplus */

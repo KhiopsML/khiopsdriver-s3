@@ -1,4 +1,6 @@
-#include <gtest/gtest.h>
+#include "s3plugin.h"
+#include "s3plugin_internal.h"
+#include "contrib/matching.h"
 
 // Use mocking examples from
 // https://github.com/aws/aws-sdk-cpp/blob/main/tests/aws-cpp-sdk-s3-unit-tests/S3UnitTests.cpp
@@ -6,10 +8,6 @@
 #include <aws/s3/S3Client.h>
 #include <aws/s3/model/GetObjectRequest.h>
 #include <aws/s3/model/GetObjectResult.h>
-#include <fstream>
-#include <gmock/gmock.h>
-#include <iostream>
-#include <sstream>
 
 #include <boost/process/environment.hpp>
 
@@ -17,14 +15,14 @@
 #include <boost/uuid/uuid_generators.hpp> // generators
 #include <boost/uuid/uuid_io.hpp>         // streaming operators etc.
 
-#include "../src/s3plugin.h"
-#include "contrib/matching.h"
+#include <gmock/gmock.h>
+#include <gtest/gtest.h>
 
-constexpr int kSuccess{1};
-constexpr int kFailure{0};
+#include <fstream>
+#include <iostream>
+#include <sstream>
 
-constexpr int kFalse{0};
-constexpr int kTrue{1};
+using namespace s3plugin;
 
 void TestPatternMatching(const std::vector<std::string> &must_match,
                          const std::vector<std::string> &no_match,

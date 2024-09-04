@@ -48,6 +48,36 @@ std::string last_error;
 
 constexpr const char* nullptr_msg_stub = "Error passing null pointer to ";
 
+// test utilities
+
+void test_setClient(Aws::S3::S3Client* mock_client)
+{
+	client.reset(mock_client);
+	bIsConnected = kTrue;
+}
+
+void test_unsetClient()
+{
+	client.reset();
+	bIsConnected = kFalse;
+}
+
+void test_clearHandles()
+{
+	active_handles.clear();
+}
+
+void test_cleanupClient()
+{
+	test_clearHandles();
+	test_unsetClient();
+}
+
+void* test_getActiveHandles()
+{
+	return &active_handles;
+}
+
 #define ERROR_ON_NULL_ARG(arg, err_val)                                                                                \
 	if (!(arg))                                                                                                    \
 	{                                                                                                              \
