@@ -631,10 +631,6 @@ int driver_fileExists(const char* sFilePathName)
 
 	spdlog::debug("fileExist {}", sFilePathName);
 
-	// auto maybe_parsed_names = ParseS3Uri(sFilePathName);
-	// ERROR_ON_NAMES(maybe_parsed_names, kFalse);
-	// auto& parsed_names = maybe_parsed_names.GetResult();
-
 	NAMES_OR_ERROR(sFilePathName, kFalse);
 
 	size_t pattern_1st_sp_char_pos = 0;
@@ -643,14 +639,7 @@ int driver_fileExists(const char* sFilePathName)
 		//go ahead with the simple request
 		const auto head_object_outcome = HeadObject(names.bucket_, names.object_);
 		RETURN_ON_ERROR(head_object_outcome, "Failed retrieving file info in fileExists", kFalse);
-		// if (!head_object_outcome.IsSuccess())
-		// {
-		// 	auto& error = head_object_outcome.GetError();
-		// 	spdlog::debug("Failed retrieving file info: {} {}", static_cast<int>(error.GetErrorType()),
-		// 		      error.GetMessage());
 
-		// 	return kFailure;
-		// }
 		return kTrue;
 	}
 
@@ -659,16 +648,6 @@ int driver_fileExists(const char* sFilePathName)
 	RETURN_ON_ERROR(filter_list_outcome, "Error while filtering object list", kFalse);
 
 	return filter_list_outcome.GetResult().empty() ? kFalse : kTrue;
-
-	// auto list_objects_outcome = ListObjects(names.bucket_, names.object_.substr(prefix_idx));
-	// RETURN_ON_ERROR(list_objects_outcome, "Error while listing objects", kSuccess);
-	// auto& list = list_objects_outcome.GetResult();
-	// list.
-
-	// // Exécution de la requête HEAD
-
-	// // Retourne true si l'objet existe, false sinon
-	// return kSuccess;
 }
 
 int driver_dirExists(const char* sFilePathName)
