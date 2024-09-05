@@ -34,6 +34,8 @@ struct MultiPartFile
 using ReaderPtr = std::unique_ptr<MultiPartFile>;
 
 using HandleContainer = std::vector<ReaderPtr>;
+using HandleIt = HandleContainer::iterator;
+using HandlePtr = HandleContainer::value_type;
 } // namespace s3plugin
 
 // Driver state manipulations for tests

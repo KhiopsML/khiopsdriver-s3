@@ -87,6 +87,15 @@ void* test_getActiveHandles()
 		return (err_val);                                                                                      \
 	}
 
+#define FIND_HANDLE_OR_ERROR(stream, errval)                                                                           \
+	auto stream##_it = FindHandle(stream);                                                                         \
+	if (stream##_it == active_handles.end())                                                                       \
+	{                                                                                                              \
+		LogError("Cannot identify stream");                                                                    \
+		return (errval);                                                                                       \
+	}                                                                                                              \
+	auto& h_ptr = *stream##_it;
+
 #define IF_ERROR(outcome) if (!(outcome).IsSuccess())
 
 #define RETURN_OUTCOME_ON_ERROR(outcome)                                                                               \
@@ -162,6 +171,19 @@ Aws::S3::Model::GetObjectOutcome GetObject(const std::string& bucket, const std:
 Aws::S3::Model::HeadObjectOutcome HeadObject(const std::string& bucket, const std::string& object)
 {
 	return client->HeadObject(MakeHeadObjectRequest(bucket, object));
+}
+
+HandleIt FindHandle(void* handle)
+{
+	return std::find_if(active_handles.begin(), active_handles.end(),
+			    [handle](const HandlePtr& act_h_ptr)
+			    { return handle == static_cast<void*>(act_h_ptr.get()); });
+}
+
+void EraseRemove(HandleIt pos)
+{
+	*pos = std::move(active_handles.back());
+	active_handles.pop_back();
 }
 
 // Definition of helper functions
@@ -879,15 +901,15 @@ int driver_fclose(void* stream)
 {
 	assert(driver_isConnected());
 
-	ERROR_ON_NULL_ARG(stream, kFailure);
+	ERROR_ON_NULL_ARG(stream, kCloseEOF);
 
 	spdlog::debug("fclose {}", (void*)stream);
 
-	MultiPartFile* multiFile;
+	FIND_HANDLE_OR_ERROR(stream, kCloseEOF); // introduces stream_it and h_ptr
 
-	multiFile = (MultiPartFile*)stream;
-	delete ((MultiPartFile*)stream);
-	return 0;
+	EraseRemove(stream_it);
+
+	return kCloseSuccess;
 }
 
 long long int totalSize(MultiPartFile* h)
