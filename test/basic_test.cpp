@@ -18,6 +18,7 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <fstream>
 #include <iostream>
 #include <sstream>
@@ -258,7 +259,10 @@ using ::testing::Return;
 
 class MockS3Client : public S3Client {
 public:
-  MOCK_METHOD1(GetObject, GetObjectOutcome(const GetObjectRequest &));
+  // MOCK_METHOD1(GetObject, GetObjectOutcome(const GetObjectRequest &));
+
+  MOCK_METHOD(GetObjectOutcome, GetObject, (const GetObjectRequest &request),
+              (const));
 
   MOCK_METHOD(HeadObjectOutcome, HeadObject, (const HeadObjectRequest &request),
               (const));
@@ -267,14 +271,13 @@ public:
               (const ListObjectsV2Request &request), (const));
 };
 
-HeadObjectOutcome MakeHeadObjectOutcome(bool failure = false) {
-  if (failure) {
-    return S3Error{};
-  }
-  return HeadObjectResult{};
-}
+template <typename T> T MakeOutcomeError() { return S3Error{}; }
 
-ListObjectsV2Outcome MakeListObjectOutcomeFailure() { return S3Error{}; }
+HeadObjectOutcome MakeHeadObjectOutcome(long long value) {
+  HeadObjectResult res;
+  res.SetContentLength(value);
+  return res;
+}
 
 ListObjectsV2Outcome MakeListObjectOutcome(Aws::Vector<Object> &&v,
                                            std::string &&token) {
@@ -285,51 +288,70 @@ ListObjectsV2Outcome MakeListObjectOutcome(Aws::Vector<Object> &&v,
 }
 
 // Note: the strings inside keys will be moved from
-Aws::Vector<Object> MakeObjectVector(std::vector<std::string> &&keys) {
+Aws::Vector<Object> MakeObjectVector(std::vector<std::string> &&keys,
+                                     std::vector<long long> &&sizes) {
   const size_t key_count = keys.size();
   Aws::Vector<Object> res(key_count);
   for (size_t i = 0; i < key_count; i++) {
     res[i].SetKey(std::move(keys[i]));
   }
+
+  const size_t to_add = std::min(key_count, sizes.size());
+  for (size_t i = 0; i < to_add; i++) {
+    res[i].SetSize(sizes[i]);
+  }
+
   return res;
 }
 
-TEST(S3DriverTest, GetObjectTest) {
-  // Setup AWS API
-  Aws::SDKOptions options;
-  Aws::InitAPI(options);
+GetObjectOutcome MakeGetObjectOutcome(const std::string &body) {
 
-  MockS3Client mockClient;
-  Aws::S3::Model::GetObjectRequest request;
-  Aws::S3::Model::GetObjectResult expected;
+  std::unique_ptr<Aws::IOStream> stream{new Aws::StringStream()};
+  *stream << body;
+  stream->flush();
 
-  const char *ALLOCATION_TAG = "S3DriverTest";
-
-  std::shared_ptr<Aws::IOStream> body =
-      Aws::MakeShared<Aws::StringStream>(ALLOCATION_TAG);
-  *body << "What country shall I say is calling From across the world?";
-  body->flush();
-  expected.ReplaceBody(body.get());
-
-  // Définir le comportement attendu de la méthode GetObject
-  EXPECT_CALL(mockClient, GetObject(testing::_))
-      .WillOnce(testing::Return(
-          Aws::S3::Model::GetObjectOutcome(std::move(expected))));
-
-  // Appeler la méthode GetObject et vérifier le résultat
-  auto outcome = mockClient.GetObject(request);
-  ASSERT_EQ(outcome.IsSuccess(), true);
-  Aws::StringStream ss;
-  Aws::S3::Model::GetObjectResult result = outcome.GetResultWithOwnership();
-  ss << result.GetBody().rdbuf();
-  ASSERT_STREQ("What country shall I say is calling From across the world?",
-               ss.str().c_str());
-  // Delete shared ptr, otherwise a mismatched free will be called
-  body.reset();
-
-  // Cleanup AWS API
-  Aws::ShutdownAPI(options);
+  GetObjectResult res;
+  res.ReplaceBody(stream.release()); // according to the API doc,
+                                     // GetObjectResult takes ownership
+  return res;
 }
+
+// TEST(S3DriverTest, GetObjectTest) {
+//   // Setup AWS API
+//   Aws::SDKOptions options;
+//   Aws::InitAPI(options);
+
+//   MockS3Client mockClient;
+//   Aws::S3::Model::GetObjectRequest request;
+//   Aws::S3::Model::GetObjectResult expected;
+
+//   const char *ALLOCATION_TAG = "S3DriverTest";
+
+//   std::shared_ptr<Aws::IOStream> body =
+//       Aws::MakeShared<Aws::StringStream>(ALLOCATION_TAG);
+//   *body << "What country shall I say is calling From across the world?";
+//   body->flush();
+//   expected.ReplaceBody(body.get());
+
+//   // Définir le comportement attendu de la méthode GetObject
+//   EXPECT_CALL(mockClient, GetObject(testing::_))
+//       .WillOnce(testing::Return(
+//           Aws::S3::Model::GetObjectOutcome(std::move(expected))));
+
+//   // Appeler la méthode GetObject et vérifier le résultat
+//   auto outcome = mockClient.GetObject(request);
+//   ASSERT_EQ(outcome.IsSuccess(), true);
+//   Aws::StringStream ss;
+//   Aws::S3::Model::GetObjectResult result = outcome.GetResultWithOwnership();
+//   ss << result.GetBody().rdbuf();
+//   ASSERT_STREQ("What country shall I say is calling From across the world?",
+//                ss.str().c_str());
+//   // Delete shared ptr, otherwise a mismatched free will be called
+//   body.reset();
+
+//   // Cleanup AWS API
+//   Aws::ShutdownAPI(options);
+// }
 
 class S3DriverTestFixture : public ::testing::Test {
 protected:
@@ -409,76 +431,223 @@ public:
         .WillOnce(Return(
             MakeListObjectOutcome(std::move(content), std::move(token))));
   }
+
+  const char *one_file_ = "s3://bucket/name";
+  const char *pattern_ = "s3://bucket/pattern*";
+  const char *pattern_stub_ = "s3://bucket/pattern";
+
+  std::string MakeKeyFromPatternStub(char c) {
+    std::string key(pattern_stub_);
+    key.push_back(c);
+    return key;
+  }
+
+  void GetFileSize_OneFile_Failure() {
+    ASSERT_EQ(driver_getFileSize(one_file_), kBadSize);
+  }
+
+  void GetFileSize_OneFile_OK(long long test_length) {
+    ASSERT_EQ(driver_getFileSize(one_file_), test_length);
+  }
+
+  void GetFileSize_Pattern_Failure() {
+    ASSERT_EQ(driver_getFileSize(pattern_), kBadSize);
+  }
+
+  void GetFileSize_Pattern_OK(long long test_length) {
+    ASSERT_EQ(driver_getFileSize(pattern_), test_length);
+  }
 };
 
-#define LIST_CALL_ACTION(content, token)                                       \
-  .WillOnce(                                                                   \
-      Return(MakeListObjectOutcome(std::move((content)), std::move((token)))))
+#define EXPECT_HEADOBJECT EXPECT_CALL(*mock_client_, HeadObject)
+#define EXPECT_LISTOBJECT EXPECT_CALL(*mock_client_, ListObjectsV2)
+#define EXPECT_GETOBJECT EXPECT_CALL(*mock_client_, GetObject)
+
+#define CALL_ONCE(action) .WillOnce(Return(action))
+
+#define CALL_FAILURE(T) CALL_ONCE(MakeOutcomeError<T>())
+#define HEADOBJECT_FAILURE CALL_FAILURE(HeadObjectOutcome)
+#define LISTOBJECT_FAILURE CALL_FAILURE(ListObjectsV2Outcome)
+#define GETOBJECT_FAILURE CALL_FAILURE(GetObjectOutcome)
+
+#define HEADOBJECT_CALL(length) CALL_ONCE(MakeHeadObjectOutcome((length)))
+
+#define LIST_CALL(content, token)                                              \
+  CALL_ONCE(MakeListObjectOutcome(std::move((content)), std::move((token))))
+
+#define GETOBJECT_CALL(body) CALL_ONCE(MakeGetObjectOutcome((body)))
 
 TEST_F(S3DriverTestFixture, FileExists_InvalidURIs) {
   CheckInvalidURIs(driver_fileExists, kFalse);
 }
 
 TEST_F(S3DriverTestFixture, FileExists_NoGlobbing) {
-  EXPECT_CALL(*mock_client_, HeadObject)
-      .WillOnce(Return(MakeHeadObjectOutcome())) // file exists
-      .WillOnce(
-          Return(MakeHeadObjectOutcome(true))); // no file found or server error
+  EXPECT_HEADOBJECT
+  HEADOBJECT_CALL(0)  // file exists
+  HEADOBJECT_FAILURE; // no file found or server error
 
   ASSERT_EQ(driver_fileExists("s3://mock_bucket/mock_name"), kTrue);
   ASSERT_EQ(driver_fileExists("s3://mock_bucket/no_match_or_error"), kFalse);
 }
 
 TEST_F(S3DriverTestFixture, FileExists_Globbing_ListObjectError) {
-  EXPECT_CALL(*mock_client_, ListObjectsV2)
-      .WillOnce(Return(MakeListObjectOutcomeFailure()));
+  EXPECT_LISTOBJECT
+  LISTOBJECT_FAILURE;
 
   ASSERT_EQ(driver_fileExists("s3://mock_bucket/**/pattern"), kFalse);
 }
+
+#define SIMPLE_LIST_CALL                                                       \
+  EXPECT_LISTOBJECT                                                            \
+  LIST_CALL(content, token);
 
 TEST_F(S3DriverTestFixture, FileExists_Globbing_EmptyList) {
   Aws::Vector<Object> content;
   std::string token;
 
-  EXPECT_CALL(*mock_client_, ListObjectsV2)
-  LIST_CALL_ACTION(content, token);
+  SIMPLE_LIST_CALL;
 
   ASSERT_EQ(driver_fileExists("s3://mock_bucket/**/pattern"), kFalse);
 }
 
 TEST_F(S3DriverTestFixture, FileExists_Globbing_SomeContent_NoMatch) {
-  auto content = MakeObjectVector({"nomatch0", "nomatch1"});
+  auto content = MakeObjectVector({"nomatch0", "nomatch1"}, {});
   std::string token;
 
-  EXPECT_CALL(*mock_client_, ListObjectsV2)
-  LIST_CALL_ACTION(content, token);
+  SIMPLE_LIST_CALL;
 
   ASSERT_EQ(driver_fileExists("s3://mock_bucket/**/pattern"), kFalse);
 }
 
 TEST_F(S3DriverTestFixture, FileExists_Globbing_SomeContent_Match) {
   auto content = MakeObjectVector({"s3://mock_bucket/i_match/pattern",
-                                   "s3://mock_bucket/i_match_too/pattern"});
+                                   "s3://mock_bucket/i_match_too/pattern"},
+                                  {});
   std::string token;
 
-  EXPECT_CALL(*mock_client_, ListObjectsV2)
-  LIST_CALL_ACTION(content, token);
+  SIMPLE_LIST_CALL;
 
   ASSERT_EQ(driver_fileExists("s3://mock_bucket/**/pattern"), kTrue);
 }
 
 TEST_F(S3DriverTestFixture, FileExists_Globbing_ContinuationToken) {
-  auto content0 = MakeObjectVector({"a"});
-  auto content1 = MakeObjectVector({"b"});
+  auto content0 = MakeObjectVector({"a"}, {1});
+  auto content1 = MakeObjectVector({"b"}, {1});
 
   std::string not_empty = "not_empty_token";
   std::string empty;
 
-  EXPECT_CALL(*mock_client_, ListObjectsV2)
-  LIST_CALL_ACTION(content0, not_empty)
-  LIST_CALL_ACTION(content1, empty);
+  EXPECT_LISTOBJECT
+  LIST_CALL(content0, not_empty)
+  LIST_CALL(content1, empty);
 
   ASSERT_EQ(driver_fileExists("s3://mock_bucket/**/pattern"), kFalse);
+}
+
+TEST_F(S3DriverTestFixture, GetFileSize_InvalidURIs) {
+  CheckInvalidURIs(driver_getFileSize, kBadSize);
+}
+
+TEST_F(S3DriverTestFixture, GetFileSize_OneFile_Error) {
+  EXPECT_HEADOBJECT
+  HEADOBJECT_FAILURE;
+  GetFileSize_OneFile_Failure();
+}
+
+TEST_F(S3DriverTestFixture, GetFileSize_OneFile_OK) {
+  const long long length{8};
+
+  EXPECT_HEADOBJECT
+  HEADOBJECT_CALL(length);
+
+  GetFileSize_OneFile_OK(length);
+}
+
+TEST_F(S3DriverTestFixture, GetFileSize_Pattern_Error) {
+  EXPECT_LISTOBJECT
+  LISTOBJECT_FAILURE;
+  GetFileSize_Pattern_Failure();
+}
+
+TEST_F(S3DriverTestFixture, GetFileSize_Pattern_NoMatch) {
+  auto content = MakeObjectVector({"nomatch0", "nomatch1"}, {});
+  std::string token;
+
+  SIMPLE_LIST_CALL;
+
+  GetFileSize_Pattern_Failure();
+}
+
+TEST_F(S3DriverTestFixture, GetFileSize_Pattern_OneMatch) {
+  const long long expected_size{1};
+  std::string key(pattern_stub_);
+  key.push_back('0');
+
+  auto content = MakeObjectVector({key}, {expected_size});
+  std::string token;
+
+  SIMPLE_LIST_CALL;
+
+  GetFileSize_Pattern_OK(expected_size);
+}
+
+TEST_F(S3DriverTestFixture, GetFileSize_Pattern_MultiMatch_SameHeader_OK) {
+  const std::string key_0 = MakeKeyFromPatternStub('0');
+  const std::string key_1 = MakeKeyFromPatternStub('1');
+
+  const std::string header = "header\n";
+  const std::string content0 = "content";
+  const std::string content1 = "more content";
+
+  const std::string body_0 = header + content0;
+  const std::string body_1 = header + content1;
+
+  const long long expected_size =
+      static_cast<long long>(body_0.size() + content1.size());
+
+  auto content =
+      MakeObjectVector({key_0, key_1}, {body_0.size(), body_1.size()});
+  std::string token;
+
+  // list
+  SIMPLE_LIST_CALL;
+
+  // read header
+  EXPECT_GETOBJECT
+  GETOBJECT_CALL(body_0)
+  GETOBJECT_CALL(body_1);
+
+  GetFileSize_Pattern_OK(expected_size);
+}
+
+TEST_F(S3DriverTestFixture,
+       GetFileSize_Pattern_MultiMatch_DifferentHeaders_OK) {
+  const std::string key_0 = MakeKeyFromPatternStub('0');
+  const std::string key_1 = MakeKeyFromPatternStub('1');
+
+  const std::string header = "header\n";
+  const std::string content0 = "content";
+  const std::string content1 = "more content";
+
+  const std::string body_0 = header + content0;
+  const std::string body_1 = content1;
+
+  const long long expected_size =
+      static_cast<long long>(body_0.size() + content1.size());
+
+  auto content =
+      MakeObjectVector({key_0, key_1}, {body_0.size(), body_1.size()});
+  std::string token;
+
+  // list
+  SIMPLE_LIST_CALL;
+
+  // read header
+  EXPECT_GETOBJECT
+  GETOBJECT_CALL(body_0)
+  GETOBJECT_CALL(body_1);
+
+  GetFileSize_Pattern_OK(expected_size);
 }
 
 int main(int argc, char **argv) {
