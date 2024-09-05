@@ -710,19 +710,23 @@ SizeOutcome getFileSize(const std::string& bucket_name, const std::string& objec
 	KH_S3_FILTER_LIST(file_list, bucket_name, object_name,
 			  pattern_1st_sp_char_pos); // !! puts file_list and file_list_outcome into scope
 
-	// auto file_list_outcome = FilterList(bucket_name, object_name, prefix_idx);
-	// PASS_OUTCOME_ON_ERROR(file_list_outcome);
-	// ObjectsVec& file_list = file_list_outcome.GetResult();
+	if (file_list.empty())
+	{
+		return MakeSimpleError(Aws::S3::S3Errors::RESOURCE_NOT_FOUND, "No match for the file pattern");
+	}
 
 	// get the size of the first file
 	const S3Object& first_file = file_list.front();
 	long long total_size = first_file.GetSize();
 
-	// read the size of the header
+	// special case: one element
+	if (file_list.size() == 1)
+	{
+		return total_size;
+	}
 
-	// auto header_outcome = ReadHeader(bucket_name, file);
-	// PASS_OUTCOME_ON_ERROR(header_outcome);
-	// const std::string& header = header_outcome.GetResult();
+	// general case: more than one element
+	// read the size of the header
 
 	KH_S3_READ_HEADER(header, bucket_name, first_file); // !! puts header and outcome_header into scope
 
