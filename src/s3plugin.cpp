@@ -455,6 +455,12 @@ FilterOutcome FilterList(const std::string& bucket, const std::string& pattern, 
 	PASS_OUTCOME_ON_ERROR(var##_outcome);                                                                          \
 	const ObjectsVec& var = var##_outcome.GetResult();
 
+#define KH_S3_EMPTY_LIST(list)                                                                                         \
+	if ((list).empty())                                                                                            \
+	{                                                                                                              \
+		return MakeSimpleError(Aws::S3::S3Errors::RESOURCE_NOT_FOUND, "No match for the file pattern");        \
+	}
+
 // Implementation of driver functions
 
 const char* driver_getDriverName()
@@ -732,10 +738,7 @@ SizeOutcome getFileSize(const std::string& bucket_name, const std::string& objec
 	KH_S3_FILTER_LIST(file_list, bucket_name, object_name,
 			  pattern_1st_sp_char_pos); // !! puts file_list and file_list_outcome into scope
 
-	if (file_list.empty())
-	{
-		return MakeSimpleError(Aws::S3::S3Errors::RESOURCE_NOT_FOUND, "No match for the file pattern");
-	}
+	KH_S3_EMPTY_LIST(file_list);
 
 	// get the size of the first file
 	const S3Object& first_file = file_list.front();
@@ -819,6 +822,8 @@ SimpleOutcome<ReaderPtr> MakeReaderPtr(std::string bucketname, std::string objec
 
 	KH_S3_FILTER_LIST(file_list, bucketname, objectname,
 			  pattern_1st_sp_char_pos); // !! file_list and file_list_outcome now in scope
+
+	KH_S3_EMPTY_LIST(file_list);
 
 	const size_t file_count = file_list.size();
 	std::vector<std::string> filenames(file_count);
