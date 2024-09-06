@@ -24,6 +24,7 @@
 #include <assert.h>
 #include <fstream>
 #include <iostream>
+#include <limits>
 #include <memory>
 #include <sstream>
 #include <string>
@@ -186,67 +187,6 @@ void EraseRemove(HandleIt pos)
 	active_handles.pop_back();
 }
 
-// Definition of helper functions
-long long int DownloadFileRangeToBuffer(const std::string& bucket_name, const std::string& object_name, char* buffer,
-					std::size_t buffer_length, std::int64_t start_range, std::int64_t end_range)
-{
-
-	// Définition de la plage de bytes à télécharger
-	Aws::StringStream range;
-	range << "bytes=" << start_range << "-" << end_range;
-
-	// Exécution de la requête
-	auto get_object_outcome = GetObject(bucket_name, object_name, range.str());
-	// // Configuration de la requête pour obtenir un objet
-	// auto object_request = MakeHeadObjectRequest(bucket_name, object_name,
-	// range.str());
-
-	long long int num_read = -1;
-
-	if (get_object_outcome.IsSuccess())
-	{
-		// Téléchargement réussi, lecture des données dans le buffer
-		auto& retrieved_file = get_object_outcome.GetResultWithOwnership().GetBody();
-
-		retrieved_file.read(buffer, buffer_length);
-		num_read = retrieved_file.gcount();
-		spdlog::debug("read = {}", num_read);
-	}
-	else
-	{
-		// Gestion des erreurs
-		std::cerr << "Failed to download object: " << get_object_outcome.GetError().GetMessage() << std::endl;
-
-		num_read = -1;
-	}
-	return num_read;
-}
-
-bool UploadBuffer(const std::string& bucket_name, const std::string& object_name, const char* buffer,
-		  std::size_t buffer_size)
-{
-
-	Aws::S3::Model::PutObjectRequest request;
-	request.SetBucket(bucket_name);
-	request.SetKey(object_name);
-
-	const std::shared_ptr<Aws::IOStream> inputData = Aws::MakeShared<Aws::StringStream>("");
-	std::string data;
-	data.assign(buffer, buffer_size);
-	*inputData << data.c_str();
-
-	request.SetBody(inputData);
-
-	Aws::S3::Model::PutObjectOutcome outcome = client->PutObject(request);
-
-	if (!outcome.IsSuccess())
-	{
-		spdlog::error("PutObjectBuffer: {}", outcome.GetError().GetMessage());
-	}
-
-	return outcome.IsSuccess();
-}
-
 struct SimpleErrorModel
 {
 	std::string err_msg_;
@@ -301,6 +241,136 @@ template <typename R> using SimpleOutcome = Aws::Utils::Outcome<R, SimpleError>;
 using ParseURIOutcome = SimpleOutcome<ParseUriResult>;
 using SizeOutcome = SimpleOutcome<long long>;
 using FilterOutcome = SimpleOutcome<ObjectsVec>;
+
+// Definition of helper functions
+SizeOutcome DownloadFileRangeToBuffer(const std::string& bucket, const std::string& object_name, char* buffer,
+				      std::int64_t start_range, std::int64_t end_range)
+{
+	// determine byte range to download from object
+	Aws::StringStream range;
+	range << "bytes=" << start_range << "-" << end_range;
+
+	auto request = MakeGetObjectRequest(bucket, object_name, range.str());
+	auto outcome = client->GetObject(request);
+	RETURN_OUTCOME_ON_ERROR(outcome);
+
+	// get ownership of the result and its underlying stream
+	Aws::S3::Model::GetObjectResult result{outcome.GetResultWithOwnership()};
+	auto& stream = result.GetBody();
+	stream.read(buffer, end_range - start_range);
+
+	if (stream.bad())
+	{
+		return MakeSimpleError(Aws::S3::S3Errors::INTERNAL_FAILURE, "Failed to read stream content");
+	}
+
+	return stream.gcount();
+}
+
+SizeOutcome ReadBytesInFile(MultiPartFile& multifile, char* buffer, tOffset to_read)
+{
+	// Start at first usable file chunk
+	// Advance through file chunks, advancing buffer pointer
+	// Until last requested byte was read
+	// Or error occured
+
+	tOffset bytes_read{0};
+
+	// Lookup item containing initial bytes at requested offset
+	const auto& cumul_sizes = multifile.cumulative_sizes_;
+	const tOffset common_header_length = multifile.common_header_length_;
+	const std::string& bucket_name = multifile.bucketname_;
+	const auto& filenames = multifile.filenames_;
+	char* buffer_pos = buffer;
+	tOffset& offset = multifile.offset_;
+	const tOffset offset_bak = offset; // in case of irrecoverable error, leave the multifile in its starting state
+
+	auto greater_than_offset_it = std::upper_bound(cumul_sizes.begin(), cumul_sizes.end(), offset);
+	size_t idx = static_cast<size_t>(std::distance(cumul_sizes.begin(), greater_than_offset_it));
+
+	spdlog::debug("Use item {} to read @ {} (end = {})", idx, offset, *greater_than_offset_it);
+
+	auto read_range_and_update = [&](const std::string& filename, tOffset start, tOffset end) -> SizeOutcome
+	{
+		auto download_outcome = DownloadFileRangeToBuffer(
+		    bucket_name, filename, buffer_pos, static_cast<int64_t>(start), static_cast<int64_t>(end));
+		if (!download_outcome.IsSuccess())
+		{
+			offset = offset_bak;
+			return download_outcome.GetError();
+		}
+
+		tOffset actual_read = download_outcome.GetResult();
+
+		spdlog::debug("read = {}", actual_read);
+
+		bytes_read += actual_read;
+		buffer_pos += actual_read;
+		offset += actual_read;
+
+		if (actual_read < (end - start) /*expected read*/)
+		{
+			spdlog::debug("End of file encountered");
+			to_read = 0;
+		}
+		else
+		{
+			to_read -= actual_read;
+		}
+
+		return actual_read;
+	};
+
+	// first file read
+
+	const tOffset file_start = (idx == 0) ? offset : offset - cumul_sizes[idx - 1] + common_header_length;
+	const tOffset read_end = std::min(file_start + to_read, file_start + cumul_sizes[idx] - offset);
+
+	SizeOutcome read_outcome = read_range_and_update(filenames[idx], file_start, read_end);
+
+	// continue with the next files
+	while (read_outcome.IsSuccess() && to_read)
+	{
+		// read the missing bytes in the next files as necessary
+		idx++;
+		const tOffset start = common_header_length;
+		const tOffset end = std::min(start + to_read, start + cumul_sizes[idx] - cumul_sizes[idx - 1]);
+
+		read_outcome = read_range_and_update(filenames[idx], start, end);
+	}
+
+	if (read_outcome.IsSuccess())
+	{
+		read_outcome.GetResult() = bytes_read;
+	}
+
+	return read_outcome;
+}
+
+bool UploadBuffer(const std::string& bucket_name, const std::string& object_name, const char* buffer,
+		  std::size_t buffer_size)
+{
+
+	Aws::S3::Model::PutObjectRequest request;
+	request.SetBucket(bucket_name);
+	request.SetKey(object_name);
+
+	const std::shared_ptr<Aws::IOStream> inputData = Aws::MakeShared<Aws::StringStream>("");
+	std::string data;
+	data.assign(buffer, buffer_size);
+	*inputData << data.c_str();
+
+	request.SetBody(inputData);
+
+	Aws::S3::Model::PutObjectOutcome outcome = client->PutObject(request);
+
+	if (!outcome.IsSuccess())
+	{
+		spdlog::error("PutObjectBuffer: {}", outcome.GetError().GetMessage());
+	}
+
+	return outcome.IsSuccess();
+}
 
 ParseURIOutcome ParseS3Uri(const std::string& s3_uri)
 { //, std::string &bucket_name, std::string &object_name) {
@@ -460,6 +530,12 @@ FilterOutcome FilterList(const std::string& bucket, const std::string& pattern, 
 	{                                                                                                              \
 		return MakeSimpleError(Aws::S3::S3Errors::RESOURCE_NOT_FOUND, "No match for the file pattern");        \
 	}
+
+bool WillSizeCountProductOverflow(size_t size, size_t count)
+{
+	constexpr size_t max_prod_usable{static_cast<size_t>(std::numeric_limits<tOffset>::max())};
+	return (max_prod_usable / size < count || max_prod_usable / count < size);
+}
 
 // Implementation of driver functions
 
@@ -698,7 +774,7 @@ SimpleOutcome<std::string> ReadHeader(const std::string& bucket, const S3Object&
 {
 	auto request = MakeGetObjectRequest(bucket, obj.GetKey());
 	auto outcome = client->GetObject(request);
-	IF_ERROR(outcome) {}
+	RETURN_OUTCOME_ON_ERROR(outcome);
 	// Aws::IOStream& read_stream = outcome.GetResultWithOwnership().GetBody();
 	Aws::IOStream& read_stream = outcome.GetResult().GetBody();
 	std::string line;
@@ -924,43 +1000,69 @@ long long int totalSize(MultiPartFile* h)
 
 int driver_fseek(void* stream, long long int offset, int whence)
 {
+	constexpr long long max_val = std::numeric_limits<long long>::max();
+
 	ERROR_ON_NULL_ARG(stream, kBadSize);
+
+	// confirm stream's presence
+	FIND_HANDLE_OR_ERROR(stream, kBadSize);
+	auto& h = *h_ptr;
+
+	// if (HandleType::kRead != stream_h->type)
+	// {
+	//     LogError("Cannot seek on not reading stream");
+	//     return -1;
+	// }
 
 	spdlog::debug("fseek {} {} {}", stream, offset, whence);
 
-	MultiPartFile* h = (MultiPartFile*)stream;
+	// MultiPartFile &h = stream_h->GetReader();
+
+	tOffset computed_offset{0};
 
 	switch (whence)
 	{
 	case std::ios::beg:
-		h->offset_ = offset;
-		return 0;
+		computed_offset = offset;
+		break;
 	case std::ios::cur:
-	{
-		auto computedOffset = h->offset_ + offset;
-		if (computedOffset < 0)
+		if (offset > max_val - h.offset_)
 		{
-			spdlog::critical("Invalid seek offset {}", computedOffset);
-			return -1;
+			LogError("Signed overflow prevented");
+			return kBadSize;
 		}
-		h->offset_ = computedOffset;
-		return 0;
-	}
+		computed_offset = h.offset_ + offset;
+		break;
 	case std::ios::end:
-	{
-		auto computedOffset = totalSize(h) + offset;
-		if (computedOffset < 0)
+		if (h.total_size_ > 0)
 		{
-			spdlog::critical("Invalid seek offset {}", computedOffset);
-			return -1;
+			long long minus1 = h.total_size_ - 1;
+			if (offset > max_val - minus1)
+			{
+				LogError("Signed overflow prevented");
+				return kBadSize;
+			}
 		}
-		h->offset_ = computedOffset;
-		return 0;
-	}
+		if ((offset == std::numeric_limits<long long>::min()) && (h.total_size_ == 0))
+		{
+			LogError("Signed overflow prevented");
+			return kBadSize;
+		}
+
+		computed_offset = (h.total_size_ == 0) ? offset : h.total_size_ - 1 + offset;
+		break;
 	default:
-		spdlog::critical("Invalid seek mode {}", whence);
-		return -1;
+		LogError("Invalid seek mode " + std::to_string(whence));
+		return kBadSize;
 	}
+
+	if (computed_offset < 0)
+	{
+		LogError("Invalid seek offset " + std::to_string(computed_offset));
+		return kBadSize;
+	}
+	h.offset_ = computed_offset;
+	return 0;
 }
 
 const char* driver_getlasterror()
@@ -972,34 +1074,82 @@ const char* driver_getlasterror()
 
 long long int driver_fread(void* ptr, size_t size, size_t count, void* stream)
 {
+	ERROR_ON_NULL_ARG(stream, kBadSize);
+	ERROR_ON_NULL_ARG(ptr, kBadSize);
+
+	if (0 == size)
+	{
+		LogError("Error passing size of 0");
+		return kBadSize;
+	}
+
 	spdlog::debug("fread {} {} {} {}", ptr, size, count, stream);
 
-	assert(stream != NULL);
-	MultiPartFile* h = (MultiPartFile*)stream;
+	// confirm stream's presence
+	FIND_HANDLE_OR_ERROR(stream, kBadSize);
+	auto& h = *h_ptr;
 
-	// TODO: handle multifile case
-	auto toRead = size * count;
-	spdlog::debug("offset = {} toRead = {}", h->offset_, toRead);
+	const tOffset offset = h.offset_;
 
-	auto num_read = DownloadFileRangeToBuffer(h->bucketname_, h->filename_, (char*)ptr, toRead, h->offset_,
-						  h->offset_ + toRead);
+	// fast exit for 0 read
+	if (0 == count)
+	{
+		return 0;
+	}
 
-	if (num_read != -1)
-		h->offset_ += num_read;
-	return num_read;
+	// prevent overflow
+	if (WillSizeCountProductOverflow(size, count))
+	{
+		LogError("product size * count is too large, would overflow");
+		return kBadSize;
+	}
+
+	tOffset to_read{static_cast<tOffset>(size * count)};
+	if (offset > std::numeric_limits<long long>::max() - to_read)
+	{
+		LogError("signed overflow prevented on reading attempt");
+		return kBadSize;
+	}
+	// end of overflow prevention
+
+	// special case: if offset >= total_size, error if not 0 byte required. 0 byte required is already done above
+	const tOffset total_size = h.total_size_;
+	if (offset >= total_size)
+	{
+		LogError("Error trying to read more bytes while already out of bounds");
+		return kBadSize;
+	}
+
+	// normal cases
+	if (offset + to_read > total_size)
+	{
+		to_read = total_size - offset;
+		spdlog::debug("offset {}, req len {} exceeds file size ({}) -> reducing len to {}", offset, to_read,
+			      total_size, to_read);
+	}
+	else
+	{
+		spdlog::debug("offset = {} to_read = {}", offset, to_read);
+	}
+
+	auto read_outcome = ReadBytesInFile(h, reinterpret_cast<char*>(ptr), to_read);
+	RETURN_ON_ERROR(read_outcome, "Error while reading from file", kBadSize);
+
+	return read_outcome.GetResult();
 }
 
 long long int driver_fwrite(const void* ptr, size_t size, size_t count, void* stream)
 {
-	spdlog::debug("fwrite {} {} {} {}", ptr, size, count, stream);
+	// spdlog::debug("fwrite {} {} {} {}", ptr, size, count, stream);
 
-	assert(stream != NULL);
-	MultiPartFile* h = (MultiPartFile*)stream;
+	// assert(stream != NULL);
+	// MultiPartFile* h = (MultiPartFile*)stream;
 
-	UploadBuffer(h->bucketname_, h->filename_, (char*)ptr, size * count);
+	// UploadBuffer(h->bucketname_, h->filename_, (char*)ptr, size * count);
 
-	// TODO proper error handling...
-	return size * count;
+	// // TODO proper error handling...
+	// return size * count;
+	return kBadSize;
 }
 
 int driver_fflush(void* stream)
