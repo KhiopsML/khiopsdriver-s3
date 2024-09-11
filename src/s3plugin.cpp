@@ -896,7 +896,7 @@ SimpleOutcome<ReaderPtr> MakeReaderPtr(std::string bucketname, std::string objec
 		const long long size = size_outcome.GetResult();
 
 		return ReaderPtr(
-		    new MultiPartFile{std::move(bucketname), std::move(objectname), 0, 0, {objectname}, {size}, size});
+		    new MultiPartFile{std::move(bucketname), std::move(objectname), 0, 0, {objectname}, {size}});
 	}
 
 	// this is a multifile. the reader object needs the list of filenames matching the globbing pattern and their
@@ -957,9 +957,8 @@ SimpleOutcome<ReaderPtr> MakeReaderPtr(std::string bucketname, std::string objec
 	}
 
 	// construct the result
-	const tOffset total_size = cumulative_size.back(); // keep it now, cumulative_size will be moved from
 	return ReaderPtr(new MultiPartFile{std::move(bucketname), std::move(objectname), 0, common_header_length,
-					   std::move(filenames), std::move(cumulative_size), total_size});
+					   std::move(filenames), std::move(cumulative_size)});
 }
 
 SimpleOutcome<WriterPtr> MakeWriterPtr(std::string bucket, std::string object)
@@ -1294,7 +1293,6 @@ long long int driver_fwrite(const void* ptr, size_t size, size_t count, void* st
 
 	const size_t to_write = size * count;
 
-	const auto& writer = h_ptr->writer_;
 	// tune up the capacity of the internal buffer, the final buffer size must be a multiple of the size argument
 	auto& buffer = h_ptr->buffer_;
 	const size_t curr_size = buffer.size();

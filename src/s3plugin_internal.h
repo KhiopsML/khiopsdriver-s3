@@ -32,6 +32,15 @@ struct MultiPartFile
 	std::vector<std::string> filenames_;
 	std::vector<tOffset> cumulative_sizes_;
 	tOffset total_size_{0};
+
+	MultiPartFile() = default;
+	explicit MultiPartFile(std::string bucket, std::string filename, tOffset offset, tOffset common_header_length,
+			       std::vector<std::string> filenames, std::vector<tOffset> cumulative_sizes)
+	    : bucketname_{std::move(bucket)}, filename_{std::move(filename)}, offset_{offset},
+	      common_header_length_{common_header_length}, filenames_{std::move(filenames)},
+	      cumulative_sizes_{std::move(cumulative_sizes)}, total_size_{cumulative_sizes_.back()}
+	{
+	}
 };
 
 using Parts = std::vector<Aws::S3::Model::CompletedPart>;

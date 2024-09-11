@@ -606,7 +606,8 @@ TEST_F(S3DriverTestFixture, GetFileSize_Pattern_MultiMatch_SameHeader_OK) {
       static_cast<long long>(body_0.size() + content1.size());
 
   auto content =
-      MakeObjectVector({key_0, key_1}, {body_0.size(), body_1.size()});
+      MakeObjectVector({key_0, key_1}, {static_cast<long long>(body_0.size()),
+                                        static_cast<long long>(body_1.size())});
   std::string token;
 
   // list
@@ -636,7 +637,8 @@ TEST_F(S3DriverTestFixture,
       static_cast<long long>(body_0.size() + content1.size());
 
   auto content =
-      MakeObjectVector({key_0, key_1}, {body_0.size(), body_1.size()});
+      MakeObjectVector({key_0, key_1}, {static_cast<long long>(body_0.size()),
+                                        static_cast<long long>(body_1.size())});
   std::string token;
 
   // list
