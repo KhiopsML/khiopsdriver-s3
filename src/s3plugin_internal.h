@@ -1,5 +1,8 @@
 #pragma once
 
+#include <aws/s3/S3Client.h>
+#include <aws/s3/model/CompletedPart.h>
+
 #include <memory>
 #include <string>
 #include <vector>
@@ -31,16 +34,50 @@ struct MultiPartFile
 	tOffset total_size_{0};
 };
 
-using ReaderPtr = std::unique_ptr<MultiPartFile>;
+using Parts = std::vector<Aws::S3::Model::CompletedPart>;
 
-using HandleContainer = std::vector<ReaderPtr>;
-using HandleIt = HandleContainer::iterator;
-using HandlePtr = HandleContainer::value_type;
+struct WriteFile
+{
+	static constexpr size_t buff_min_ = 5 * 1024 * 1024;
+	static constexpr size_t buff_max_ = buff_min_ * 1024;
+
+	Aws::S3::Model::CreateMultipartUploadResult writer_;
+	std::vector<unsigned char> buffer_;
+	Parts parts_;
+	std::string bucketname_;
+	std::string filename_;
+	std::string append_target_;
+	int part_tracker_{1};
+
+	WriteFile() = default;
+	WriteFile(Aws::S3::Model::CreateMultipartUploadResult&& create_upload_result)
+	    : writer_{std::move(create_upload_result)}, buffer_(buff_min_), bucketname_{writer_.GetBucket()},
+	      filename_{writer_.GetKey()}
+	{
+	}
+
+	~WriteFile() = default;
+	// do not allow copies, too expensive
+	WriteFile(const WriteFile&) = delete;
+	WriteFile& operator=(const WriteFile&) = delete;
+	WriteFile(WriteFile&&) noexcept = default;
+	WriteFile& operator=(WriteFile&&) noexcept = default;
+};
+
+using Reader = MultiPartFile;
+using Writer = WriteFile;
+
+using ReaderPtr = std::unique_ptr<Reader>;
+using WriterPtr = std::unique_ptr<Writer>;
+
+template <typename T> using HandleContainer = std::vector<T>;
+
+template <typename T> using HandleIt = typename HandleContainer<T>::iterator;
+
+template <typename T> using HandlePtr = typename HandleContainer<T>::value_type;
 } // namespace s3plugin
 
 // Driver state manipulations for tests
-
-#include <aws/s3/S3Client.h>
 
 #if defined(__unix__) || defined(__unix) || (defined(__APPLE__) && defined(__MACH__))
 #define __unix_or_mac__
@@ -69,7 +106,9 @@ extern "C"
 
 	VISIBLE void test_cleanupClient();
 
-	VISIBLE void* test_getActiveHandles();
+	VISIBLE void* test_getActiveReaderHandles();
+
+	VISIBLE void* test_getActiveWriterHandles();
 
 #ifdef __cplusplus
 } /* extern "C" */

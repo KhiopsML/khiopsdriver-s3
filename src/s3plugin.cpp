@@ -11,12 +11,16 @@
 #include <aws/core/Aws.h>
 #include <aws/core/auth/AWSCredentials.h>
 #include <aws/core/auth/AWSCredentialsProvider.h>
+#include <aws/core/utils/stream/PreallocatedStreamBuf.h>
 #include <aws/s3/S3Client.h>
+#include <aws/s3/model/CompleteMultipartUploadRequest.h>
+#include <aws/s3/model/CreateMultipartUploadRequest.h>
 #include <aws/s3/model/DeleteObjectRequest.h>
 #include <aws/s3/model/GetObjectRequest.h>
 #include <aws/s3/model/HeadObjectRequest.h>
 #include <aws/s3/model/ListObjectsV2Request.h>
 #include <aws/s3/model/PutObjectRequest.h>
+#include <aws/s3/model/UploadPartRequest.h>
 
 #include "ini.h"
 
@@ -43,7 +47,8 @@ std::unique_ptr<Aws::S3::S3Client> client;
 // Global bucket name
 std::string globalBucketName = "";
 
-HandleContainer active_handles;
+HandleContainer<ReaderPtr> active_reader_handles;
+HandleContainer<WriterPtr> active_writer_handles;
 
 std::string last_error;
 
@@ -65,7 +70,8 @@ void test_unsetClient()
 
 void test_clearHandles()
 {
-	active_handles.clear();
+	active_reader_handles.clear();
+	active_writer_handles.clear();
 }
 
 void test_cleanupClient()
@@ -74,9 +80,14 @@ void test_cleanupClient()
 	test_unsetClient();
 }
 
-void* test_getActiveHandles()
+void* test_getActiveReaderHandles()
 {
-	return &active_handles;
+	return &active_reader_handles;
+}
+
+void* test_getActiveWriterHandles()
+{
+	return &active_writer_handles;
 }
 
 #define ERROR_ON_NULL_ARG(arg, err_val)                                                                                \
@@ -88,9 +99,9 @@ void* test_getActiveHandles()
 		return (err_val);                                                                                      \
 	}
 
-#define FIND_HANDLE_OR_ERROR(stream, errval)                                                                           \
-	auto stream##_it = FindHandle(stream);                                                                         \
-	if (stream##_it == active_handles.end())                                                                       \
+#define FIND_HANDLE_OR_ERROR(container, stream, errval)                                                                \
+	auto stream##_it = FindHandle((container), (stream));                                                          \
+	if (stream##_it == container.end())                                                                            \
 	{                                                                                                              \
 		LogError("Cannot identify stream");                                                                    \
 		return (errval);                                                                                       \
@@ -174,17 +185,16 @@ Aws::S3::Model::HeadObjectOutcome HeadObject(const std::string& bucket, const st
 	return client->HeadObject(MakeHeadObjectRequest(bucket, object));
 }
 
-HandleIt FindHandle(void* handle)
+template <typename H> HandleIt<H> FindHandle(HandleContainer<H>& container, void* handle)
 {
-	return std::find_if(active_handles.begin(), active_handles.end(),
-			    [handle](const HandlePtr& act_h_ptr)
-			    { return handle == static_cast<void*>(act_h_ptr.get()); });
+	return std::find_if(container.begin(), container.end(),
+			    [handle](const H& h) { return handle == static_cast<void*>(h.get()); });
 }
 
-void EraseRemove(HandleIt pos)
+template <typename H> void EraseRemove(HandleContainer<H>& container, HandleIt<H> pos)
 {
-	*pos = std::move(active_handles.back());
-	active_handles.pop_back();
+	*pos = std::move(container.back());
+	container.pop_back();
 }
 
 struct SimpleErrorModel
@@ -241,6 +251,7 @@ template <typename R> using SimpleOutcome = Aws::Utils::Outcome<R, SimpleError>;
 using ParseURIOutcome = SimpleOutcome<ParseUriResult>;
 using SizeOutcome = SimpleOutcome<long long>;
 using FilterOutcome = SimpleOutcome<ObjectsVec>;
+using UploadOutcome = SimpleOutcome<bool>; // R can't be void
 
 // Definition of helper functions
 SizeOutcome DownloadFileRangeToBuffer(const std::string& bucket, const std::string& object_name, char* buffer,
@@ -951,6 +962,87 @@ SimpleOutcome<ReaderPtr> MakeReaderPtr(std::string bucketname, std::string objec
 					   std::move(filenames), std::move(cumulative_size), total_size});
 }
 
+SimpleOutcome<WriterPtr> MakeWriterPtr(std::string bucket, std::string object)
+{
+	Aws::S3::Model::CreateMultipartUploadRequest request;
+	request.SetBucket(std::move(bucket));
+	request.SetKey(std::move(object));
+	auto outcome = client->CreateMultipartUpload(request);
+	RETURN_OUTCOME_ON_ERROR(outcome);
+	return WriterPtr(new WriteFile{outcome.GetResultWithOwnership()});
+}
+
+// This template is only here to get specialized
+template <typename T> T* PushBackHandle(std::unique_ptr<T>&&)
+{
+	return nullptr;
+}
+
+template <> Reader* PushBackHandle<Reader>(ReaderPtr&& stream_ptr)
+{
+	active_reader_handles.push_back(std::move(stream_ptr));
+	return active_reader_handles.back().get();
+}
+
+template <> Writer* PushBackHandle<Writer>(WriterPtr&& stream_ptr)
+{
+	active_writer_handles.push_back(std::move(stream_ptr));
+	return active_writer_handles.back().get();
+}
+
+template <typename Stream>
+SimpleOutcome<Stream*>
+RegisterStream(std::function<SimpleOutcome<std::unique_ptr<Stream>>(std::string, std::string)> MakeStreamPtr,
+	       std::string&& bucket, std::string&& object)
+{
+	auto outcome = MakeStreamPtr(std::move(bucket), std::move(object));
+	PASS_OUTCOME_ON_ERROR(outcome);
+	return PushBackHandle(outcome.GetResultWithOwnership());
+}
+
+SimpleOutcome<Reader*> RegisterReader(std::string&& bucket, std::string&& object)
+{
+	return RegisterStream<ReaderPtr>(MakeReaderPtr, std::move(bucket), std::move(object));
+}
+
+SimpleOutcome<Writer*> RegisterWriter(std::string&& bucket, std::string&& object)
+{
+	return RegisterStream<WriterPtr>(MakeWriterPtr, std::move(bucket), std::move(object));
+}
+
+#define KH_S3_REGISTER_STREAM(type, err_msg)                                                                           \
+	auto outcome = Register##type(std::move(names.bucket_), std::move(names.object_));                             \
+	RETURN_ON_ERROR(outcome, err_msg, nullptr);                                                                    \
+	return outcome.GetResult();
+
+UploadOutcome UploadPart(Writer& writer)
+{
+	auto& buffer = writer.buffer_;
+	Aws::Utils::Stream::PreallocatedStreamBuf pre_buf(buffer.data(), buffer.size());
+	const auto body = std::make_shared<Aws::IOStream>(&pre_buf);
+
+	const auto& w = writer.writer_;
+	Aws::S3::Model::UploadPartRequest request;
+	request.WithBucket(w.GetBucket())
+	    .WithKey(w.GetKey())
+	    .WithUploadId(w.GetUploadId())
+	    .WithPartNumber(writer.part_tracker_);
+	request.SetBody(body);
+
+	auto outcome = client->UploadPart(request);
+	RETURN_OUTCOME_ON_ERROR(outcome);
+
+	// get the last pieces of upload metadata
+	auto& parts = writer.parts_;
+	parts.emplace_back();
+	auto& last_part = parts.back();
+	last_part.SetETag(std::move(outcome.GetResult().GetETag()));
+	last_part.SetPartNumber(writer.part_tracker_);
+	writer.part_tracker_++;
+
+	return true;
+}
+
 void* driver_fopen(const char* filename, char mode)
 {
 	assert(driver_isConnected());
@@ -965,18 +1057,26 @@ void* driver_fopen(const char* filename, char mode)
 	{
 	case 'r':
 	{
-		auto outcome = MakeReaderPtr(std::move(names.bucket_), std::move(names.object_));
-		RETURN_ON_ERROR(outcome, "Error while opening reader stream", nullptr);
-		active_handles.push_back(outcome.GetResultWithOwnership());
-		return active_handles.back().get();
+		KH_S3_REGISTER_STREAM(Reader, "Error while opening reader stream");
 	}
 	case 'w':
+	{
+		KH_S3_REGISTER_STREAM(Writer, "Error while opening writer stream");
+	}
 	case 'a':
 	default:
 		LogError("Invalid open mode " + mode);
 		return nullptr;
 	}
 }
+
+#define KH_S3_FIND_AND_REMOVE(type, container, stream)                                                                 \
+	auto type##_handle_it = FindHandle((container), (stream));                                                     \
+	if (type##_handle_it != (container).end())                                                                     \
+	{                                                                                                              \
+		EraseRemove((container), type##_handle_it);                                                            \
+		return kCloseSuccess;                                                                                  \
+	}
 
 int driver_fclose(void* stream)
 {
@@ -986,11 +1086,37 @@ int driver_fclose(void* stream)
 
 	spdlog::debug("fclose {}", (void*)stream);
 
-	FIND_HANDLE_OR_ERROR(stream, kCloseEOF); // introduces stream_it and h_ptr
+	KH_S3_FIND_AND_REMOVE(reader, active_reader_handles, stream);
 
-	EraseRemove(stream_it);
+	auto writer_h_it = FindHandle(active_writer_handles, stream);
+	if (writer_h_it != active_writer_handles.end())
+	{
+		// end multipart upload
+		// first, flush the pending data
+		auto& writer = **writer_h_it;
+		auto outcome = UploadPart(writer);
+		RETURN_ON_ERROR(outcome, "Error during upload", kCloseEOF);
 
-	return kCloseSuccess;
+		// close upload
+		const auto& upload_data = writer.writer_;
+		Aws::S3::Model::CompletedMultipartUpload request_body;
+		request_body.SetParts(writer.parts_);
+		Aws::S3::Model::CompleteMultipartUploadRequest request;
+		request.WithBucket(upload_data.GetBucket())
+		    .WithKey(upload_data.GetKey())
+		    .WithUploadId(upload_data.GetUploadId())
+		    .WithMultipartUpload(std::move(request_body));
+
+		auto complete_outcome = client->CompleteMultipartUpload(request);
+
+		// always delete handle
+		EraseRemove(active_writer_handles, writer_h_it);
+
+		RETURN_ON_ERROR(complete_outcome, "Error completing upload while closing stream", kCloseEOF);
+	}
+
+	LogError("Cannot identify stream");
+	return kCloseEOF;
 }
 
 long long int totalSize(MultiPartFile* h)
@@ -1005,7 +1131,7 @@ int driver_fseek(void* stream, long long int offset, int whence)
 	ERROR_ON_NULL_ARG(stream, kBadSize);
 
 	// confirm stream's presence
-	FIND_HANDLE_OR_ERROR(stream, kBadSize);
+	FIND_HANDLE_OR_ERROR(active_reader_handles, stream, kBadSize);
 	auto& h = *h_ptr;
 
 	// if (HandleType::kRead != stream_h->type)
@@ -1086,7 +1212,7 @@ long long int driver_fread(void* ptr, size_t size, size_t count, void* stream)
 	spdlog::debug("fread {} {} {} {}", ptr, size, count, stream);
 
 	// confirm stream's presence
-	FIND_HANDLE_OR_ERROR(stream, kBadSize);
+	FIND_HANDLE_OR_ERROR(active_reader_handles, stream, kBadSize);
 	auto& h = *h_ptr;
 
 	const tOffset offset = h.offset_;
@@ -1140,16 +1266,77 @@ long long int driver_fread(void* ptr, size_t size, size_t count, void* stream)
 
 long long int driver_fwrite(const void* ptr, size_t size, size_t count, void* stream)
 {
-	// spdlog::debug("fwrite {} {} {} {}", ptr, size, count, stream);
+	ERROR_ON_NULL_ARG(stream, kBadSize);
+	ERROR_ON_NULL_ARG(ptr, kBadSize);
 
-	// assert(stream != NULL);
-	// MultiPartFile* h = (MultiPartFile*)stream;
+	if (0 == size)
+	{
+		LogError("Error passing size 0 to fwrite");
+		return kBadSize;
+	}
 
-	// UploadBuffer(h->bucketname_, h->filename_, (char*)ptr, size * count);
+	spdlog::debug("fwrite {} {} {} {}", ptr, size, count, stream);
 
-	// // TODO proper error handling...
-	// return size * count;
-	return kBadSize;
+	FIND_HANDLE_OR_ERROR(active_writer_handles, stream, kBadSize);
+
+	// fast exit for 0
+	if (0 == count)
+	{
+		return 0;
+	}
+
+	// prevent integer overflow
+	if (WillSizeCountProductOverflow(size, count))
+	{
+		LogError("Error on write: product size * count is too large, would overflow");
+		return kBadSize;
+	}
+
+	const size_t to_write = size * count;
+
+	const auto& writer = h_ptr->writer_;
+	// tune up the capacity of the internal buffer, the final buffer size must be a multiple of the size argument
+	auto& buffer = h_ptr->buffer_;
+	const size_t curr_size = buffer.size();
+	const size_t next_size = curr_size + to_write;
+	if (next_size > buffer.capacity())
+	{
+		// if next_size exceeds max capacity, reserve the closest capacity under buff_max_ that is a multiple of size argument,
+		// else reserve next_size
+		buffer.reserve(next_size > WriteFile::buff_max_ ? (WriteFile::buff_max_ / size) * size : next_size);
+	}
+
+	// copy up to capacity for now
+	size_t remain = to_write;
+	size_t copy_count = buffer.capacity() - buffer.size();
+	const unsigned char* ptr_cast_pos = static_cast<const unsigned char*>(ptr);
+
+	auto copy_and_update = [&]()
+	{
+		buffer.insert(buffer.end(), ptr_cast_pos, ptr_cast_pos + copy_count);
+		ptr_cast_pos += copy_count;
+		remain -= copy_count;
+	};
+
+	copy_and_update();
+
+	// upload the content of the buffer until the size of the remaining data is smaller than the minimum upload size
+	while (buffer.size() >= WriteFile::buff_min_)
+	{
+		// TODO replace below with uploadpart function
+		auto outcome = UploadPart(*h_ptr);
+		RETURN_ON_ERROR(outcome, "Error during upload", kBadSize);
+
+		// copy remaining data up to capacity
+		buffer.clear();
+		copy_count = std::min(remain, buffer.capacity());
+		copy_and_update();
+	}
+
+	// release unused memory
+	buffer.shrink_to_fit();
+
+	return to_write;
 }
 
 int driver_fflush(void* stream)
