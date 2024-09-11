@@ -42,15 +42,15 @@ int bIsConnected = false;
 constexpr const char* S3EndpointProvider = "KHIOPS_ML_S3";
 
 Aws::SDKOptions options;
-std::unique_ptr<Aws::S3::S3Client> client;
+Aws::UniquePtr<Aws::S3::S3Client> client;
 
 // Global bucket name
-std::string globalBucketName = "";
+Aws::String globalBucketName = "";
 
 HandleContainer<ReaderPtr> active_reader_handles;
 HandleContainer<WriterPtr> active_writer_handles;
 
-std::string last_error;
+Aws::String last_error;
 
 constexpr const char* nullptr_msg_stub = "Error passing null pointer to ";
 
@@ -58,6 +58,7 @@ constexpr const char* nullptr_msg_stub = "Error passing null pointer to ";
 
 void test_setClient(Aws::S3::S3Client* mock_client)
 {
+	client = Aws::MakeUnique<Aws::S3::S3Client>("S3_TEST");
 	client.reset(mock_client);
 	bIsConnected = kTrue;
 }
@@ -93,7 +94,7 @@ void* test_getActiveWriterHandles()
 #define ERROR_ON_NULL_ARG(arg, err_val)                                                                                \
 	if (!(arg))                                                                                                    \
 	{                                                                                                              \
-		std::ostringstream os;                                                                                 \
+		Aws::OStringStream os;                                                                                 \
 		os << nullptr_msg_stub << __func__;                                                                    \
 		LogError(os.str());                                                                                    \
 		return (err_val);                                                                                      \
@@ -138,33 +139,33 @@ void* test_getActiveWriterHandles()
 	ERROR_ON_NAMES(maybe_parsed_names, (err_val));                                                                 \
 	auto& names = maybe_parsed_names.GetResult();
 
-void LogError(const std::string& msg)
+void LogError(const Aws::String& msg)
 {
 	spdlog::error(msg);
 	last_error = std::move(msg);
 }
 
-template <typename R, typename E> void LogBadOutcome(const Aws::Utils::Outcome<R, E>& outcome, const std::string& msg)
+template <typename R, typename E> void LogBadOutcome(const Aws::Utils::Outcome<R, E>& outcome, const Aws::String& msg)
 {
-	std::ostringstream os;
+	Aws::OStringStream os;
 	os << msg << ": " << outcome.GetError().GetMessage();
 	LogError(os.str());
 }
 
-template <typename RequestType> RequestType MakeBaseRequest(const std::string& bucket, const std::string& object)
+template <typename RequestType> RequestType MakeBaseRequest(const Aws::String& bucket, const Aws::String& object)
 {
 	RequestType request;
 	request.WithBucket(bucket).WithKey(object);
 	return request;
 }
 
-Aws::S3::Model::HeadObjectRequest MakeHeadObjectRequest(const std::string& bucket, const std::string& object)
+Aws::S3::Model::HeadObjectRequest MakeHeadObjectRequest(const Aws::String& bucket, const Aws::String& object)
 {
 	return MakeBaseRequest<Aws::S3::Model::HeadObjectRequest>(bucket, object);
 }
 
-Aws::S3::Model::GetObjectRequest MakeGetObjectRequest(const std::string& bucket, const std::string& object,
-						      std::string&& range = "")
+Aws::S3::Model::GetObjectRequest MakeGetObjectRequest(const Aws::String& bucket, const Aws::String& object,
+						      Aws::String&& range = "")
 {
 	auto request = MakeBaseRequest<Aws::S3::Model::GetObjectRequest>(bucket, object);
 	if (!range.empty())
@@ -174,13 +175,13 @@ Aws::S3::Model::GetObjectRequest MakeGetObjectRequest(const std::string& bucket,
 	return request;
 }
 
-Aws::S3::Model::GetObjectOutcome GetObject(const std::string& bucket, const std::string& object,
-					   std::string&& range = "")
+Aws::S3::Model::GetObjectOutcome GetObject(const Aws::String& bucket, const Aws::String& object,
+					   Aws::String&& range = "")
 {
 	return client->GetObject(MakeGetObjectRequest(bucket, object, std::move(range)));
 }
 
-Aws::S3::Model::HeadObjectOutcome HeadObject(const std::string& bucket, const std::string& object)
+Aws::S3::Model::HeadObjectOutcome HeadObject(const Aws::String& bucket, const Aws::String& object)
 {
 	return client->HeadObject(MakeHeadObjectRequest(bucket, object));
 }
@@ -199,9 +200,9 @@ template <typename H> void EraseRemove(HandleContainer<H>& container, HandleIt<H
 
 struct SimpleErrorModel
 {
-	std::string err_msg_;
+	Aws::String err_msg_;
 
-	const std::string& GetMessage() const
+	const Aws::String& GetMessage() const
 	{
 		return err_msg_;
 	}
@@ -210,9 +211,9 @@ struct SimpleErrorModel
 struct SimpleError
 {
 	int code_;
-	std::string err_msg_;
+	Aws::String err_msg_;
 
-	std::string GetMessage() const
+	Aws::String GetMessage() const
 	{
 		return std::to_string(code_) + err_msg_;
 	}
@@ -223,7 +224,7 @@ struct SimpleError
 	}
 };
 
-SimpleError MakeSimpleError(Aws::S3::S3Errors err_code, std::string&& err_msg)
+SimpleError MakeSimpleError(Aws::S3::S3Errors err_code, Aws::String&& err_msg)
 {
 	return {static_cast<int>(err_code), std::move(err_msg)};
 }
@@ -240,11 +241,11 @@ SimpleError MakeSimpleError(const Aws::S3::S3Error& from)
 
 struct ParseUriResult
 {
-	std::string bucket_;
-	std::string object_;
+	Aws::String bucket_;
+	Aws::String object_;
 };
 
-using ObjectsVec = std::vector<S3Object>;
+using ObjectsVec = Aws::Vector<S3Object>;
 
 template <typename R> using SimpleOutcome = Aws::Utils::Outcome<R, SimpleError>;
 
@@ -254,7 +255,7 @@ using FilterOutcome = SimpleOutcome<ObjectsVec>;
 using UploadOutcome = SimpleOutcome<bool>; // R can't be void
 
 // Definition of helper functions
-SizeOutcome DownloadFileRangeToBuffer(const std::string& bucket, const std::string& object_name, char* buffer,
+SizeOutcome DownloadFileRangeToBuffer(const Aws::String& bucket, const Aws::String& object_name, char* buffer,
 				      std::int64_t start_range, std::int64_t end_range)
 {
 	// determine byte range to download from object
@@ -290,7 +291,7 @@ SizeOutcome ReadBytesInFile(MultiPartFile& multifile, char* buffer, tOffset to_r
 	// Lookup item containing initial bytes at requested offset
 	const auto& cumul_sizes = multifile.cumulative_sizes_;
 	const tOffset common_header_length = multifile.common_header_length_;
-	const std::string& bucket_name = multifile.bucketname_;
+	const Aws::String& bucket_name = multifile.bucketname_;
 	const auto& filenames = multifile.filenames_;
 	char* buffer_pos = buffer;
 	tOffset& offset = multifile.offset_;
@@ -301,7 +302,7 @@ SizeOutcome ReadBytesInFile(MultiPartFile& multifile, char* buffer, tOffset to_r
 
 	spdlog::debug("Use item {} to read @ {} (end = {})", idx, offset, *greater_than_offset_it);
 
-	auto read_range_and_update = [&](const std::string& filename, tOffset start, tOffset end) -> SizeOutcome
+	auto read_range_and_update = [&](const Aws::String& filename, tOffset start, tOffset end) -> SizeOutcome
 	{
 		auto download_outcome = DownloadFileRangeToBuffer(
 		    bucket_name, filename, buffer_pos, static_cast<int64_t>(start), static_cast<int64_t>(end));
@@ -358,34 +359,34 @@ SizeOutcome ReadBytesInFile(MultiPartFile& multifile, char* buffer, tOffset to_r
 	return read_outcome;
 }
 
-bool UploadBuffer(const std::string& bucket_name, const std::string& object_name, const char* buffer,
-		  std::size_t buffer_size)
-{
+// bool UploadBuffer(const Aws::String& bucket_name, const Aws::String& object_name, const char* buffer,
+// 		  std::size_t buffer_size)
+// {
 
-	Aws::S3::Model::PutObjectRequest request;
-	request.SetBucket(bucket_name);
-	request.SetKey(object_name);
+// 	Aws::S3::Model::PutObjectRequest request;
+// 	request.SetBucket(bucket_name);
+// 	request.SetKey(object_name);
 
-	const std::shared_ptr<Aws::IOStream> inputData = Aws::MakeShared<Aws::StringStream>("");
-	std::string data;
-	data.assign(buffer, buffer_size);
-	*inputData << data.c_str();
+// 	const std::shared_ptr<Aws::IOStream> inputData = Aws::MakeShared<Aws::StringStream>("");
+// 	std::string data;
+// 	data.assign(buffer, buffer_size);
+// 	*inputData << data.c_str();
 
-	request.SetBody(inputData);
+// 	request.SetBody(inputData);
 
-	Aws::S3::Model::PutObjectOutcome outcome = client->PutObject(request);
+// 	Aws::S3::Model::PutObjectOutcome outcome = client->PutObject(request);
 
-	if (!outcome.IsSuccess())
-	{
-		spdlog::error("PutObjectBuffer: {}", outcome.GetError().GetMessage());
-	}
+// 	if (!outcome.IsSuccess())
+// 	{
+// 		spdlog::error("PutObjectBuffer: {}", outcome.GetError().GetMessage());
+// 	}
 
-	return outcome.IsSuccess();
-}
+// 	return outcome.IsSuccess();
+// }
 
-ParseURIOutcome ParseS3Uri(const std::string& s3_uri)
+ParseURIOutcome ParseS3Uri(const Aws::String& s3_uri)
 { //, std::string &bucket_name, std::string &object_name) {
-	const std::string prefix = "s3://";
+	const Aws::String prefix = "s3://";
 	const size_t prefix_size = prefix.size();
 	if (s3_uri.compare(0, prefix_size, prefix) != 0)
 	{
@@ -407,7 +408,7 @@ ParseURIOutcome ParseS3Uri(const std::string& s3_uri)
 		// return false;
 	}
 
-	std::string bucket_name = s3_uri.substr(prefix_size, pos - prefix_size);
+	Aws::String bucket_name = s3_uri.substr(prefix_size, pos - prefix_size);
 
 	if (bucket_name.empty())
 	{
@@ -419,7 +420,7 @@ ParseURIOutcome ParseS3Uri(const std::string& s3_uri)
 		bucket_name = globalBucketName;
 	}
 
-	std::string object_name = s3_uri.substr(pos + 1);
+	Aws::String object_name = s3_uri.substr(pos + 1);
 
 	return ParseUriResult{std::move(bucket_name), std::move(object_name)};
 }
@@ -434,13 +435,13 @@ ParseURIOutcome ParseS3Uri(const std::string& s3_uri)
 //   spdlog::critical("No bucket specified, and GCS_BUCKET_NAME is not set!");
 // }
 
-std::string GetEnvironmentVariableOrDefault(const std::string& variable_name, const std::string& default_value)
+Aws::String GetEnvironmentVariableOrDefault(const Aws::String& variable_name, const Aws::String& default_value)
 {
 	const char* value = getenv(variable_name.c_str());
 	return value ? value : default_value;
 }
 
-bool IsMultifile(const std::string& pattern, size_t& first_special_char_idx)
+bool IsMultifile(const Aws::String& pattern, size_t& first_special_char_idx)
 {
 	spdlog::debug("Parse multifile pattern {}", pattern);
 
@@ -492,7 +493,7 @@ bool IsMultifile(const std::string& pattern, size_t& first_special_char_idx)
 // 	return -1
 // }
 
-Aws::S3::Model::ListObjectsV2Outcome ListObjects(const std::string& bucket, const std::string& pattern)
+Aws::S3::Model::ListObjectsV2Outcome ListObjects(const Aws::String& bucket, const Aws::String& pattern)
 {
 	Aws::S3::Model::ListObjectsV2Request request;
 	request.WithBucket(bucket).WithPrefix(pattern).WithDelimiter("");
@@ -502,7 +503,7 @@ Aws::S3::Model::ListObjectsV2Outcome ListObjects(const std::string& bucket, cons
 // Get from a bucket a list of objects matching a name pattern.
 // To get a limited list of objects to filter per request, the request includes a well defined
 // prefix contained in the pattern
-FilterOutcome FilterList(const std::string& bucket, const std::string& pattern, size_t pattern_1st_sp_char_pos)
+FilterOutcome FilterList(const Aws::String& bucket, const Aws::String& pattern, size_t pattern_1st_sp_char_pos)
 {
 	ObjectsVec res;
 
@@ -573,9 +574,9 @@ int driver_isReadOnly()
 int driver_connect()
 {
 
-	auto file_exists = [](const std::string& name)
+	auto file_exists = [](const Aws::String& name)
 	{
-		std::ifstream ifile(name);
+		Aws::IFStream ifile(name);
 		return (ifile.is_open());
 	};
 
@@ -592,15 +593,15 @@ int driver_connect()
 	// Configuration: we honor both standard AWS config files and environment
 	// variables If both configuration files and environment variables are set
 	// precedence is given to environment variables
-	std::string s3endpoint = "";
-	std::string s3region = "us-east-1";
+	Aws::String s3endpoint = "";
+	Aws::String s3region = "us-east-1";
 
 	// Load AWS configuration from file
 	Aws::Auth::AWSCredentials configCredentials;
-	std::string userHome = GetEnvironmentVariableOrDefault("HOME", "");
+	Aws::String userHome = GetEnvironmentVariableOrDefault("HOME", "");
 	if (!userHome.empty())
 	{
-		std::ostringstream defaultConfig_os;
+		Aws::OStringStream defaultConfig_os;
 		defaultConfig_os << userHome << "/.aws/config";
 		const std::string defaultConfig = defaultConfig_os.str();
 
@@ -609,17 +610,17 @@ int driver_connect()
 		//                                 .append("config")
 		//                                 .string();
 
-		const std::string configFile = GetEnvironmentVariableOrDefault("AWS_CONFIG_FILE", defaultConfig);
+		const Aws::String configFile = GetEnvironmentVariableOrDefault("AWS_CONFIG_FILE", defaultConfig);
 		spdlog::debug("Conf file = {}", configFile);
 
 		if (file_exists(configFile))
 		{
 			// if (std::filesystem::exists(std::filesystem::path(configFile))) {
-			const std::string profile = GetEnvironmentVariableOrDefault("AWS_PROFILE", "default");
+			const Aws::String profile = GetEnvironmentVariableOrDefault("AWS_PROFILE", "default");
 
 			spdlog::debug("Profile = {}", profile);
 
-			const std::string profileSection = (profile != "default") ? "profile " + profile : profile;
+			const Aws::String profileSection = (profile != "default") ? "profile " + profile : profile;
 
 			Aws::Auth::ProfileConfigFileAWSCredentialsProvider provider(profile.c_str());
 			configCredentials = provider.GetAWSCredentials();
@@ -627,14 +628,14 @@ int driver_connect()
 			mINI::INIFile file(configFile);
 			mINI::INIStructure ini;
 			file.read(ini);
-			std::string confEndpoint = ini.get(profileSection).get("endpoint_url");
+			Aws::String confEndpoint = ini.get(profileSection).get("endpoint_url");
 			if (!confEndpoint.empty())
 			{
 				s3endpoint = std::move(confEndpoint);
 			}
 			spdlog::debug("Endpoint = {}", s3endpoint);
 
-			std::string confRegion = ini.get(profileSection).get("region");
+			Aws::String confRegion = ini.get(profileSection).get("region");
 			if (!confRegion.empty())
 			{
 				s3region = std::move(confRegion);
@@ -654,9 +655,9 @@ int driver_connect()
 	s3endpoint = GetEnvironmentVariableOrDefault("S3_ENDPOINT", s3endpoint);
 	s3endpoint = GetEnvironmentVariableOrDefault("AWS_ENDPOINT_URL", s3endpoint);
 	s3region = GetEnvironmentVariableOrDefault("AWS_DEFAULT_REGION", s3region);
-	std::string s3accessKey = GetEnvironmentVariableOrDefault("S3_ACCESS_KEY", "");
+	Aws::String s3accessKey = GetEnvironmentVariableOrDefault("S3_ACCESS_KEY", "");
 	s3accessKey = GetEnvironmentVariableOrDefault("AWS_ACCESS_KEY_ID", s3accessKey);
-	std::string s3secretKey = GetEnvironmentVariableOrDefault("S3_SECRET_KEY", "");
+	Aws::String s3secretKey = GetEnvironmentVariableOrDefault("S3_SECRET_KEY", "");
 	s3secretKey = GetEnvironmentVariableOrDefault("AWS_SECRET_ACCESS_KEY", s3secretKey);
 	if ((s3accessKey != "" && s3secretKey == "") || (s3accessKey == "" && s3secretKey != ""))
 	{
@@ -684,8 +685,10 @@ int driver_connect()
 	{
 		configCredentials = Aws::Auth::AWSCredentials(s3accessKey, s3secretKey);
 	}
-	client.reset(new Aws::S3::S3Client(
-	    configCredentials, Aws::MakeShared<Aws::S3::S3EndpointProvider>(S3EndpointProvider), clientConfig));
+
+	client = Aws::MakeUnique<Aws::S3::S3Client>(S3EndpointProvider, configCredentials,
+						    Aws::MakeShared<Aws::S3::S3EndpointProvider>(S3EndpointProvider),
+						    clientConfig);
 
 	bIsConnected = true;
 	return kSuccess;
@@ -774,21 +777,21 @@ int driver_dirExists(const char* sFilePathName)
 	return kTrue;
 }
 
-SizeOutcome GetOneFileSize(const std::string& bucket, const std::string& object)
+SizeOutcome GetOneFileSize(const Aws::String& bucket, const Aws::String& object)
 {
 	const auto head_object_outcome = HeadObject(bucket, object);
 	RETURN_OUTCOME_ON_ERROR(head_object_outcome);
 	return head_object_outcome.GetResult().GetContentLength();
 }
 
-SimpleOutcome<std::string> ReadHeader(const std::string& bucket, const S3Object& obj)
+SimpleOutcome<Aws::String> ReadHeader(const Aws::String& bucket, const S3Object& obj)
 {
 	auto request = MakeGetObjectRequest(bucket, obj.GetKey());
 	auto outcome = client->GetObject(request);
 	RETURN_OUTCOME_ON_ERROR(outcome);
-	// Aws::IOStream& read_stream = outcome.GetResultWithOwnership().GetBody();
-	Aws::IOStream& read_stream = outcome.GetResult().GetBody();
-	std::string line;
+	auto result = outcome.GetResultWithOwnership();
+	Aws::IOStream& read_stream = result.GetBody();
+	Aws::String line;
 	std::getline(read_stream, line);
 	if (read_stream.bad())
 	{
@@ -808,9 +811,9 @@ SimpleOutcome<std::string> ReadHeader(const std::string& bucket, const S3Object&
 #define KH_S3_READ_HEADER(var, bucket, obj)                                                                            \
 	const auto var##_outcome = ReadHeader((bucket), (obj));                                                        \
 	PASS_OUTCOME_ON_ERROR(var##_outcome);                                                                          \
-	const std::string& var = var##_outcome.GetResult();
+	const Aws::String& var = var##_outcome.GetResult();
 
-SizeOutcome getFileSize(const std::string& bucket_name, const std::string& object_name)
+SizeOutcome getFileSize(const Aws::String& bucket_name, const Aws::String& object_name)
 {
 	// tweak the request for the object. if the object parameter is in fact a pattern,
 	// the pattern could point to a list of objects that constitute a whole file
@@ -885,7 +888,7 @@ long long int driver_getFileSize(const char* filename)
 	return maybe_file_size.GetResult();
 }
 
-SimpleOutcome<ReaderPtr> MakeReaderPtr(std::string bucketname, std::string objectname)
+SimpleOutcome<ReaderPtr> MakeReaderPtr(Aws::String bucketname, Aws::String objectname)
 {
 	size_t pattern_1st_sp_char_pos = 0;
 	if (!IsMultifile(objectname, pattern_1st_sp_char_pos))
@@ -895,8 +898,11 @@ SimpleOutcome<ReaderPtr> MakeReaderPtr(std::string bucketname, std::string objec
 		PASS_OUTCOME_ON_ERROR(size_outcome);
 		const long long size = size_outcome.GetResult();
 
-		return ReaderPtr(
-		    new MultiPartFile{std::move(bucketname), std::move(objectname), 0, 0, {objectname}, {size}});
+		Aws::Vector<Aws::String> objectnames(1, objectname);
+		Aws::Vector<tOffset> sizes(1, size);
+
+		return Aws::MakeUnique<Reader>(S3EndpointProvider, std::move(bucketname), std::move(objectname), 0, 0,
+					       std::move(objectnames), std::move(sizes));
 	}
 
 	// this is a multifile. the reader object needs the list of filenames matching the globbing pattern and their
@@ -913,8 +919,8 @@ SimpleOutcome<ReaderPtr> MakeReaderPtr(std::string bucketname, std::string objec
 	KH_S3_EMPTY_LIST(file_list);
 
 	const size_t file_count = file_list.size();
-	std::vector<std::string> filenames(file_count);
-	std::vector<long long> cumulative_size(file_count);
+	Aws::Vector<Aws::String> filenames(file_count);
+	Aws::Vector<long long> cumulative_size(file_count);
 
 	// get metadata from the first file
 	const auto& first_file = file_list.front();
@@ -957,22 +963,22 @@ SimpleOutcome<ReaderPtr> MakeReaderPtr(std::string bucketname, std::string objec
 	}
 
 	// construct the result
-	return ReaderPtr(new MultiPartFile{std::move(bucketname), std::move(objectname), 0, common_header_length,
-					   std::move(filenames), std::move(cumulative_size)});
+	return Aws::MakeUnique<Reader>(S3EndpointProvider, std::move(bucketname), std::move(objectname), 0,
+				       common_header_length, std::move(filenames), std::move(cumulative_size));
 }
 
-SimpleOutcome<WriterPtr> MakeWriterPtr(std::string bucket, std::string object)
+SimpleOutcome<WriterPtr> MakeWriterPtr(Aws::String bucket, Aws::String object)
 {
 	Aws::S3::Model::CreateMultipartUploadRequest request;
 	request.SetBucket(std::move(bucket));
 	request.SetKey(std::move(object));
 	auto outcome = client->CreateMultipartUpload(request);
 	RETURN_OUTCOME_ON_ERROR(outcome);
-	return WriterPtr(new WriteFile{outcome.GetResultWithOwnership()});
+	return Aws::MakeUnique<Writer>(S3EndpointProvider, outcome.GetResultWithOwnership());
 }
 
 // This template is only here to get specialized
-template <typename T> T* PushBackHandle(std::unique_ptr<T>&&)
+template <typename T> T* PushBackHandle(Aws::UniquePtr<T>&&)
 {
 	return nullptr;
 }
@@ -991,20 +997,20 @@ template <> Writer* PushBackHandle<Writer>(WriterPtr&& stream_ptr)
 
 template <typename Stream>
 SimpleOutcome<Stream*>
-RegisterStream(std::function<SimpleOutcome<std::unique_ptr<Stream>>(std::string, std::string)> MakeStreamPtr,
-	       std::string&& bucket, std::string&& object)
+RegisterStream(std::function<SimpleOutcome<Aws::UniquePtr<Stream>>(Aws::String, Aws::String)> MakeStreamPtr,
+	       Aws::String&& bucket, Aws::String&& object)
 {
 	auto outcome = MakeStreamPtr(std::move(bucket), std::move(object));
 	PASS_OUTCOME_ON_ERROR(outcome);
 	return PushBackHandle(outcome.GetResultWithOwnership());
 }
 
-SimpleOutcome<Reader*> RegisterReader(std::string&& bucket, std::string&& object)
+SimpleOutcome<Reader*> RegisterReader(Aws::String&& bucket, Aws::String&& object)
 {
 	return RegisterStream<ReaderPtr>(MakeReaderPtr, std::move(bucket), std::move(object));
 }
 
-SimpleOutcome<Writer*> RegisterWriter(std::string&& bucket, std::string&& object)
+SimpleOutcome<Writer*> RegisterWriter(Aws::String&& bucket, Aws::String&& object)
 {
 	return RegisterStream<WriterPtr>(MakeWriterPtr, std::move(bucket), std::move(object));
 }
@@ -1018,7 +1024,7 @@ UploadOutcome UploadPart(Writer& writer)
 {
 	auto& buffer = writer.buffer_;
 	Aws::Utils::Stream::PreallocatedStreamBuf pre_buf(buffer.data(), buffer.size());
-	const auto body = std::make_shared<Aws::IOStream>(&pre_buf);
+	const auto body = Aws::MakeShared<Aws::IOStream>(S3EndpointProvider, &pre_buf);
 
 	const auto& w = writer.writer_;
 	Aws::S3::Model::UploadPartRequest request;

@@ -288,8 +288,8 @@ ListObjectsV2Outcome MakeListObjectOutcome(Aws::Vector<Object> &&v,
 }
 
 // Note: the strings inside keys will be moved from
-Aws::Vector<Object> MakeObjectVector(std::vector<std::string> &&keys,
-                                     std::vector<long long> &&sizes) {
+Aws::Vector<Object> MakeObjectVector(Aws::Vector<Aws::String> &&keys,
+                                     Aws::Vector<long long> &&sizes) {
   const size_t key_count = keys.size();
   Aws::Vector<Object> res(key_count);
   for (size_t i = 0; i < key_count; i++) {
@@ -304,9 +304,9 @@ Aws::Vector<Object> MakeObjectVector(std::vector<std::string> &&keys,
   return res;
 }
 
-GetObjectOutcome MakeGetObjectOutcome(const std::string &body) {
+GetObjectOutcome MakeGetObjectOutcome(const Aws::String &body) {
 
-  std::unique_ptr<Aws::IOStream> stream{new Aws::StringStream()};
+  auto stream = Aws::MakeUnique<Aws::StringStream>("S3_TEST");
   *stream << body;
   stream->flush();
 
@@ -359,7 +359,7 @@ protected:
     // Setup AWS API
     Aws::InitAPI(options_);
 
-    mock_client_alias_ = new MockS3Client{};
+    mock_client_alias_ = Aws::New<MockS3Client>("S3_TEST");
     mock_client_ = dynamic_cast<MockS3Client *>(mock_client_alias_);
     test_setClient(mock_client_alias_);
   }
@@ -426,7 +426,7 @@ public:
   // HandleContainer* GetHandles() { return
   // reinterpret_cast<HandleContainer*>(test_getActiveHandles()); }
 
-  void SetListCall(Aws::Vector<Object> &&content, std::string &&token) {
+  void SetListCall(Aws::Vector<Object> &&content, Aws::String &&token) {
     EXPECT_CALL(*mock_client_, ListObjectsV2)
         .WillOnce(Return(
             MakeListObjectOutcome(std::move(content), std::move(token))));
@@ -436,8 +436,8 @@ public:
   const char *pattern_ = "s3://bucket/pattern*";
   const char *pattern_stub_ = "s3://bucket/pattern";
 
-  std::string MakeKeyFromPatternStub(char c) {
-    std::string key(pattern_stub_);
+  Aws::String MakeKeyFromPatternStub(char c) {
+    Aws::String key(pattern_stub_);
     key.push_back(c);
     return key;
   }
@@ -503,7 +503,7 @@ TEST_F(S3DriverTestFixture, FileExists_Globbing_ListObjectError) {
 
 TEST_F(S3DriverTestFixture, FileExists_Globbing_EmptyList) {
   Aws::Vector<Object> content;
-  std::string token;
+  Aws::String token;
 
   SIMPLE_LIST_CALL;
 
@@ -512,7 +512,7 @@ TEST_F(S3DriverTestFixture, FileExists_Globbing_EmptyList) {
 
 TEST_F(S3DriverTestFixture, FileExists_Globbing_SomeContent_NoMatch) {
   auto content = MakeObjectVector({"nomatch0", "nomatch1"}, {});
-  std::string token;
+  Aws::String token;
 
   SIMPLE_LIST_CALL;
 
@@ -523,7 +523,7 @@ TEST_F(S3DriverTestFixture, FileExists_Globbing_SomeContent_Match) {
   auto content = MakeObjectVector({"s3://mock_bucket/i_match/pattern",
                                    "s3://mock_bucket/i_match_too/pattern"},
                                   {});
-  std::string token;
+  Aws::String token;
 
   SIMPLE_LIST_CALL;
 
@@ -534,8 +534,8 @@ TEST_F(S3DriverTestFixture, FileExists_Globbing_ContinuationToken) {
   auto content0 = MakeObjectVector({"a"}, {1});
   auto content1 = MakeObjectVector({"b"}, {1});
 
-  std::string not_empty = "not_empty_token";
-  std::string empty;
+  Aws::String not_empty = "not_empty_token";
+  Aws::String empty;
 
   EXPECT_LISTOBJECT
   LIST_CALL(content0, not_empty)
@@ -571,7 +571,7 @@ TEST_F(S3DriverTestFixture, GetFileSize_Pattern_Error) {
 
 TEST_F(S3DriverTestFixture, GetFileSize_Pattern_NoMatch) {
   auto content = MakeObjectVector({"nomatch0", "nomatch1"}, {});
-  std::string token;
+  Aws::String token;
 
   SIMPLE_LIST_CALL;
 
@@ -580,7 +580,7 @@ TEST_F(S3DriverTestFixture, GetFileSize_Pattern_NoMatch) {
 
 TEST_F(S3DriverTestFixture, GetFileSize_Pattern_OneMatch) {
   const long long expected_size{1};
-  std::string key(pattern_stub_);
+  Aws::String key(pattern_stub_);
   key.push_back('0');
 
   auto content = MakeObjectVector({key}, {expected_size});
@@ -592,15 +592,15 @@ TEST_F(S3DriverTestFixture, GetFileSize_Pattern_OneMatch) {
 }
 
 TEST_F(S3DriverTestFixture, GetFileSize_Pattern_MultiMatch_SameHeader_OK) {
-  const std::string key_0 = MakeKeyFromPatternStub('0');
-  const std::string key_1 = MakeKeyFromPatternStub('1');
+  const Aws::String key_0 = MakeKeyFromPatternStub('0');
+  const Aws::String key_1 = MakeKeyFromPatternStub('1');
 
-  const std::string header = "header\n";
-  const std::string content0 = "content";
-  const std::string content1 = "more content";
+  const Aws::String header = "header\n";
+  const Aws::String content0 = "content";
+  const Aws::String content1 = "more content";
 
-  const std::string body_0 = header + content0;
-  const std::string body_1 = header + content1;
+  const Aws::String body_0 = header + content0;
+  const Aws::String body_1 = header + content1;
 
   const long long expected_size =
       static_cast<long long>(body_0.size() + content1.size());
@@ -608,7 +608,7 @@ TEST_F(S3DriverTestFixture, GetFileSize_Pattern_MultiMatch_SameHeader_OK) {
   auto content =
       MakeObjectVector({key_0, key_1}, {static_cast<long long>(body_0.size()),
                                         static_cast<long long>(body_1.size())});
-  std::string token;
+  Aws::String token;
 
   // list
   SIMPLE_LIST_CALL;
@@ -623,15 +623,15 @@ TEST_F(S3DriverTestFixture, GetFileSize_Pattern_MultiMatch_SameHeader_OK) {
 
 TEST_F(S3DriverTestFixture,
        GetFileSize_Pattern_MultiMatch_DifferentHeaders_OK) {
-  const std::string key_0 = MakeKeyFromPatternStub('0');
-  const std::string key_1 = MakeKeyFromPatternStub('1');
+  const Aws::String key_0 = MakeKeyFromPatternStub('0');
+  const Aws::String key_1 = MakeKeyFromPatternStub('1');
 
-  const std::string header = "header\n";
-  const std::string content0 = "content";
-  const std::string content1 = "more content";
+  const Aws::String header = "header\n";
+  const Aws::String content0 = "content";
+  const Aws::String content1 = "more content";
 
-  const std::string body_0 = header + content0;
-  const std::string body_1 = content1;
+  const Aws::String body_0 = header + content0;
+  const Aws::String body_1 = content1;
 
   const long long expected_size =
       static_cast<long long>(body_0.size() + content1.size());
@@ -639,7 +639,7 @@ TEST_F(S3DriverTestFixture,
   auto content =
       MakeObjectVector({key_0, key_1}, {static_cast<long long>(body_0.size()),
                                         static_cast<long long>(body_1.size())});
-  std::string token;
+  Aws::String token;
 
   // list
   SIMPLE_LIST_CALL;

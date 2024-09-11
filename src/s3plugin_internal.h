@@ -24,18 +24,18 @@ using tOffset = long long;
 
 struct MultiPartFile
 {
-	std::string bucketname_;
-	std::string filename_;
+	Aws::String bucketname_;
+	Aws::String filename_;
 	tOffset offset_{0};
 	// Added for multifile support
 	tOffset common_header_length_{0};
-	std::vector<std::string> filenames_;
-	std::vector<tOffset> cumulative_sizes_;
+	Aws::Vector<Aws::String> filenames_;
+	Aws::Vector<tOffset> cumulative_sizes_;
 	tOffset total_size_{0};
 
 	MultiPartFile() = default;
-	explicit MultiPartFile(std::string bucket, std::string filename, tOffset offset, tOffset common_header_length,
-			       std::vector<std::string> filenames, std::vector<tOffset> cumulative_sizes)
+	explicit MultiPartFile(Aws::String bucket, Aws::String filename, tOffset offset, tOffset common_header_length,
+			       Aws::Vector<Aws::String> filenames, Aws::Vector<tOffset> cumulative_sizes)
 	    : bucketname_{std::move(bucket)}, filename_{std::move(filename)}, offset_{offset},
 	      common_header_length_{common_header_length}, filenames_{std::move(filenames)},
 	      cumulative_sizes_{std::move(cumulative_sizes)}, total_size_{cumulative_sizes_.back()}
@@ -43,7 +43,7 @@ struct MultiPartFile
 	}
 };
 
-using Parts = std::vector<Aws::S3::Model::CompletedPart>;
+using Parts = Aws::Vector<Aws::S3::Model::CompletedPart>;
 
 struct WriteFile
 {
@@ -51,11 +51,11 @@ struct WriteFile
 	static constexpr size_t buff_max_ = buff_min_ * 1024;
 
 	Aws::S3::Model::CreateMultipartUploadResult writer_;
-	std::vector<unsigned char> buffer_;
+	Aws::Vector<unsigned char> buffer_;
 	Parts parts_;
-	std::string bucketname_;
-	std::string filename_;
-	std::string append_target_;
+	Aws::String bucketname_;
+	Aws::String filename_;
+	Aws::String append_target_;
 	int part_tracker_{1};
 
 	WriteFile() = default;
@@ -76,10 +76,10 @@ struct WriteFile
 using Reader = MultiPartFile;
 using Writer = WriteFile;
 
-using ReaderPtr = std::unique_ptr<Reader>;
-using WriterPtr = std::unique_ptr<Writer>;
+using ReaderPtr = Aws::UniquePtr<Reader>;
+using WriterPtr = Aws::UniquePtr<Writer>;
 
-template <typename T> using HandleContainer = std::vector<T>;
+template <typename T> using HandleContainer = Aws::Vector<T>;
 
 template <typename T> using HandleIt = typename HandleContainer<T>::iterator;
 
