@@ -13,6 +13,7 @@
 #include <aws/core/auth/AWSCredentialsProvider.h>
 #include <aws/core/utils/stream/PreallocatedStreamBuf.h>
 #include <aws/s3/S3Client.h>
+#include <aws/s3/model/AbortMultipartUploadRequest.h>
 #include <aws/s3/model/CompleteMultipartUploadRequest.h>
 #include <aws/s3/model/CreateMultipartUploadRequest.h>
 #include <aws/s3/model/DeleteObjectRequest.h>
@@ -703,12 +704,50 @@ int driver_connect()
 
 int driver_disconnect()
 {
+	int res{kSuccess};
+
 	if (client)
 	{
-		ShutdownAPI(options);
+		// tie up loose ends
+		Aws::Vector<Aws::S3::Model::AbortMultipartUploadOutcome> failures;
+		for (auto& h_ptr : active_writer_handles)
+		{
+			auto& h = *h_ptr;
+			auto& multipart_upload = h.writer_;
+			Aws::S3::Model::AbortMultipartUploadRequest request;
+			request.WithBucket(std::move(multipart_upload.GetBucket()))
+			    .WithKey(std::move(multipart_upload.GetKey()))
+			    .WithUploadId(std::move(multipart_upload.GetUploadId()));
+			auto outcome = client->AbortMultipartUpload(request);
+
+			if (!outcome.IsSuccess())
+			{
+				failures.push_back(std::move(outcome));
+			}
+		}
+
+		if (!failures.empty())
+		{
+			res = kFailure;
+
+			Aws::OStringStream os;
+			os << "Errors occured during disconnection:\n";
+			for (const auto& outcome : failures)
+			{
+				os << outcome.GetError().GetMessage() << '\n';
+			}
+			LogError(os.str());
+		}
 	}
-	bIsConnected = false;
-	return kSuccess;
+
+	active_writer_handles.clear();
+	active_reader_handles.clear();
+
+	ShutdownAPI(options);
+
+	bIsConnected = kFalse;
+
+	return res;
 }
 
 int driver_isConnected()
