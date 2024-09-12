@@ -91,6 +91,13 @@ void* test_getActiveWriterHandles()
 	return &active_writer_handles;
 }
 
+#define KH_S3_NOT_CONNECTED(err_val)                                                                                   \
+	if (kFalse == bIsConnected)                                                                                    \
+	{                                                                                                              \
+		LogError("Error: Driver is not connected.");                                                           \
+		return (err_val);                                                                                      \
+	}
+
 #define ERROR_ON_NULL_ARG(arg, err_val)                                                                                \
 	if (!(arg))                                                                                                    \
 	{                                                                                                              \
@@ -717,6 +724,8 @@ long long int driver_getSystemPreferredBufferSize()
 
 int driver_exist(const char* filename)
 {
+	KH_S3_NOT_CONNECTED(kFalse);
+
 	ERROR_ON_NULL_ARG(filename, kFalse);
 
 	const size_t size = std::strlen(filename);
@@ -745,6 +754,8 @@ int driver_exist(const char* filename)
 
 int driver_fileExists(const char* sFilePathName)
 {
+	KH_S3_NOT_CONNECTED(kFalse);
+
 	ERROR_ON_NULL_ARG(sFilePathName, kFalse);
 
 	spdlog::debug("fileExist {}", sFilePathName);
@@ -770,6 +781,8 @@ int driver_fileExists(const char* sFilePathName)
 
 int driver_dirExists(const char* sFilePathName)
 {
+	KH_S3_NOT_CONNECTED(kFalse);
+
 	ERROR_ON_NULL_ARG(sFilePathName, kFalse);
 
 	spdlog::debug("dirExist {}", sFilePathName);
@@ -877,6 +890,8 @@ SizeOutcome getFileSize(const Aws::String& bucket_name, const Aws::String& objec
 
 long long int driver_getFileSize(const char* filename)
 {
+	KH_S3_NOT_CONNECTED(kBadSize);
+
 	ERROR_ON_NULL_ARG(filename, kBadSize);
 
 	spdlog::debug("getFileSize {}", filename);
@@ -1050,7 +1065,7 @@ UploadOutcome UploadPart(Writer& writer)
 
 void* driver_fopen(const char* filename, char mode)
 {
-	assert(driver_isConnected());
+	KH_S3_NOT_CONNECTED(nullptr);
 
 	ERROR_ON_NULL_ARG(filename, nullptr);
 
@@ -1085,7 +1100,7 @@ void* driver_fopen(const char* filename, char mode)
 
 int driver_fclose(void* stream)
 {
-	assert(driver_isConnected());
+	KH_S3_NOT_CONNECTED(kCloseEOF);
 
 	ERROR_ON_NULL_ARG(stream, kCloseEOF);
 
@@ -1124,13 +1139,10 @@ int driver_fclose(void* stream)
 	return kCloseEOF;
 }
 
-long long int totalSize(MultiPartFile* h)
-{
-	return h->cumulative_sizes_[h->cumulative_sizes_.size() - 1];
-}
-
 int driver_fseek(void* stream, long long int offset, int whence)
 {
+	KH_S3_NOT_CONNECTED(kBadSize);
+
 	constexpr long long max_val = std::numeric_limits<long long>::max();
 
 	ERROR_ON_NULL_ARG(stream, kBadSize);
@@ -1205,6 +1217,8 @@ const char* driver_getlasterror()
 
 long long int driver_fread(void* ptr, size_t size, size_t count, void* stream)
 {
+	KH_S3_NOT_CONNECTED(kBadSize);
+
 	ERROR_ON_NULL_ARG(stream, kBadSize);
 	ERROR_ON_NULL_ARG(ptr, kBadSize);
 
@@ -1271,6 +1285,8 @@ long long int driver_fread(void* ptr, size_t size, size_t count, void* stream)
 
 long long int driver_fwrite(const void* ptr, size_t size, size_t count, void* stream)
 {
+	KH_S3_NOT_CONNECTED(kBadSize);
+
 	ERROR_ON_NULL_ARG(stream, kBadSize);
 	ERROR_ON_NULL_ARG(ptr, kBadSize);
 
@@ -1345,13 +1361,15 @@ long long int driver_fwrite(const void* ptr, size_t size, size_t count, void* st
 
 int driver_fflush(void* stream)
 {
+	KH_S3_NOT_CONNECTED(kBadSize);
+
 	spdlog::debug("Flushing (does nothing...)");
 	return 0;
 }
 
 int driver_remove(const char* filename)
 {
-	assert(driver_isConnected());
+	KH_S3_NOT_CONNECTED(kFalse);
 
 	ERROR_ON_NULL_ARG(filename, kFalse);
 
@@ -1383,7 +1401,7 @@ int driver_remove(const char* filename)
 
 int driver_rmdir(const char* filename)
 {
-	assert(driver_isConnected());
+	KH_S3_NOT_CONNECTED(kFailure);
 
 	ERROR_ON_NULL_ARG(filename, kFailure);
 	spdlog::debug("rmdir {}", filename);
@@ -1394,7 +1412,7 @@ int driver_rmdir(const char* filename)
 
 int driver_mkdir(const char* filename)
 {
-	assert(driver_isConnected());
+	KH_S3_NOT_CONNECTED(kFailure);
 
 	ERROR_ON_NULL_ARG(filename, kFailure);
 	spdlog::debug("mkdir {}", filename);
@@ -1406,15 +1424,14 @@ long long int driver_diskFreeSpace(const char* filename)
 {
 	spdlog::debug("diskFreeSpace {}", filename);
 
-	assert(driver_isConnected());
 	return (long long int)5 * 1024 * 1024 * 1024 * 1024;
 }
 
 int driver_copyToLocal(const char* sSourceFilePathName, const char* sDestFilePathName)
 {
-	spdlog::debug("copyToLocal {} {}", sSourceFilePathName, sDestFilePathName);
+	KH_S3_NOT_CONNECTED(kBadSize);
 
-	assert(driver_isConnected());
+	spdlog::debug("copyToLocal {} {}", sSourceFilePathName, sDestFilePathName);
 
 	ERROR_ON_NULL_ARG(sSourceFilePathName, kBadSize);
 	ERROR_ON_NULL_ARG(sDestFilePathName, kBadSize);
@@ -1459,7 +1476,7 @@ int driver_copyToLocal(const char* sSourceFilePathName, const char* sDestFilePat
 
 int driver_copyFromLocal(const char* sSourceFilePathName, const char* sDestFilePathName)
 {
-	assert(driver_isConnected());
+	KH_S3_NOT_CONNECTED(kBadSize);
 
 	ERROR_ON_NULL_ARG(sSourceFilePathName, kFailure);
 	ERROR_ON_NULL_ARG(sDestFilePathName, kFailure);
