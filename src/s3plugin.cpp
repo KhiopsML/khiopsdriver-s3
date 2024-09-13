@@ -21,6 +21,7 @@
 #include <aws/s3/model/HeadObjectRequest.h>
 #include <aws/s3/model/ListObjectsV2Request.h>
 #include <aws/s3/model/PutObjectRequest.h>
+#include <aws/s3/model/UploadPartCopyRequest.h>
 #include <aws/s3/model/UploadPartRequest.h>
 
 #include "ini.h"
@@ -263,21 +264,24 @@ using FilterOutcome = SimpleOutcome<ObjectsVec>;
 using UploadOutcome = SimpleOutcome<bool>; // R can't be void
 
 // Definition of helper functions
-SizeOutcome DownloadFileRangeToBuffer(const Aws::String& bucket, const Aws::String& object_name, char* buffer,
+Aws::String MakeByteRange(int64_t start, int64_t end)
+{
+	Aws::StringStream range;
+	range << "bytes=" << start << '-' << end;
+	return range.str();
+}
+
+SizeOutcome DownloadFileRangeToBuffer(const Aws::String& bucket, const Aws::String& object_name, unsigned char* buffer,
 				      std::int64_t start_range, std::int64_t end_range)
 {
-	// determine byte range to download from object
-	Aws::StringStream range;
-	range << "bytes=" << start_range << "-" << end_range;
-
-	auto request = MakeGetObjectRequest(bucket, object_name, range.str());
+	auto request = MakeGetObjectRequest(bucket, object_name, MakeByteRange(start_range, end_range));
 	auto outcome = client->GetObject(request);
 	RETURN_OUTCOME_ON_ERROR(outcome);
 
 	// get ownership of the result and its underlying stream
 	Aws::S3::Model::GetObjectResult result{outcome.GetResultWithOwnership()};
 	auto& stream = result.GetBody();
-	stream.read(buffer, end_range - start_range);
+	stream.read(reinterpret_cast<char*>(buffer), end_range - start_range);
 
 	if (stream.bad())
 	{
@@ -287,7 +291,7 @@ SizeOutcome DownloadFileRangeToBuffer(const Aws::String& bucket, const Aws::Stri
 	return stream.gcount();
 }
 
-SizeOutcome ReadBytesInFile(MultiPartFile& multifile, char* buffer, tOffset to_read)
+SizeOutcome ReadBytesInFile(MultiPartFile& multifile, unsigned char* buffer, tOffset to_read)
 {
 	// Start at first usable file chunk
 	// Advance through file chunks, advancing buffer pointer
@@ -301,7 +305,7 @@ SizeOutcome ReadBytesInFile(MultiPartFile& multifile, char* buffer, tOffset to_r
 	const tOffset common_header_length = multifile.common_header_length_;
 	const Aws::String& bucket_name = multifile.bucketname_;
 	const auto& filenames = multifile.filenames_;
-	char* buffer_pos = buffer;
+	unsigned char* buffer_pos = buffer;
 	tOffset& offset = multifile.offset_;
 	const tOffset offset_bak = offset; // in case of irrecoverable error, leave the multifile in its starting state
 
@@ -557,6 +561,49 @@ bool WillSizeCountProductOverflow(size_t size, size_t count)
 	return (max_prod_usable / size < count || max_prod_usable / count < size);
 }
 
+template <typename Request> Request MakeBaseUploadRequest(const Writer& writer)
+{
+	const auto& multipartupload_data = writer.writer_;
+
+	return Request{}
+	    .WithBucket(multipartupload_data.GetBucket())
+	    .WithKey(multipartupload_data.GetKey())
+	    .WithUploadId(multipartupload_data.GetUploadId());
+}
+
+template <typename PartRequest> PartRequest MakeBaseUploadPartRequest(const Writer& writer)
+{
+	return MakeBaseUploadRequest<PartRequest>(writer).WithPartNumber(writer.part_tracker_);
+}
+
+Aws::S3::Model::UploadPartRequest MakeUploadPartRequest(Writer& writer)
+{
+	Aws::S3::Model::UploadPartRequest request =
+	    MakeBaseUploadPartRequest<Aws::S3::Model::UploadPartRequest>(writer);
+
+	auto& buffer = writer.buffer_;
+	Aws::Utils::Stream::PreallocatedStreamBuf pre_buf(buffer.data(), buffer.size());
+	const auto body = Aws::MakeShared<Aws::IOStream>(S3EndpointProvider, &pre_buf);
+	request.SetBody(body);
+	return request;
+}
+
+Aws::S3::Model::UploadPartCopyRequest MakeUploadPartCopyRequest(Writer& writer, const Aws::String& byte_range)
+{
+	return MakeBaseUploadPartRequest<Aws::S3::Model::UploadPartCopyRequest>(writer)
+	    .WithCopySource(writer.append_target_)
+	    .WithCopySourceRange(byte_range);
+}
+
+Aws::S3::Model::CompleteMultipartUploadRequest MakeCompleteMultipartUploadRequest(Writer& writer)
+{
+	Aws::S3::Model::CompletedMultipartUpload request_body;
+	request_body.SetParts(writer.parts_);
+
+	return MakeBaseUploadRequest<Aws::S3::Model::CompleteMultipartUploadRequest>(writer).WithMultipartUpload(
+	    std::move(request_body));
+}
+
 // Implementation of driver functions
 
 const char* driver_getDriverName()
@@ -704,32 +751,30 @@ int driver_connect()
 
 int driver_disconnect()
 {
-	int res{kSuccess};
-
 	if (client)
 	{
 		// tie up loose ends
 		Aws::Vector<Aws::S3::Model::AbortMultipartUploadOutcome> failures;
-		for (auto& h_ptr : active_writer_handles)
+		for (auto h_it = active_writer_handles.begin(); h_it != active_writer_handles.end();)
 		{
-			auto& h = *h_ptr;
-			auto& multipart_upload = h.writer_;
-			Aws::S3::Model::AbortMultipartUploadRequest request;
-			request.WithBucket(std::move(multipart_upload.GetBucket()))
-			    .WithKey(std::move(multipart_upload.GetKey()))
-			    .WithUploadId(std::move(multipart_upload.GetUploadId()));
-			auto outcome = client->AbortMultipartUpload(request);
+			auto& writer = **h_it;
+			auto outcome = client->AbortMultipartUpload(
+			    MakeBaseUploadRequest<Aws::S3::Model::AbortMultipartUploadRequest>(writer));
 
-			if (!outcome.IsSuccess())
+			if (outcome.IsSuccess())
+			{
+				// delete the handle
+				h_it = active_writer_handles.erase(h_it);
+			}
+			else
 			{
 				failures.push_back(std::move(outcome));
+				h_it++;
 			}
 		}
 
 		if (!failures.empty())
 		{
-			res = kFailure;
-
 			Aws::OStringStream os;
 			os << "Errors occured during disconnection:\n";
 			for (const auto& outcome : failures)
@@ -737,6 +782,8 @@ int driver_disconnect()
 				os << outcome.GetError().GetMessage() << '\n';
 			}
 			LogError(os.str());
+
+			return kFailure;
 		}
 	}
 
@@ -747,7 +794,7 @@ int driver_disconnect()
 
 	bIsConnected = kFalse;
 
-	return res;
+	return kSuccess;
 }
 
 int driver_isConnected()
@@ -1074,30 +1121,66 @@ SimpleOutcome<Writer*> RegisterWriter(Aws::String&& bucket, Aws::String&& object
 	RETURN_ON_ERROR(outcome, err_msg, nullptr);                                                                    \
 	return outcome.GetResult();
 
+template <typename Result> void UpdateUploadMetadata(Writer& writer, const Result& result)
+{
+	Aws::S3::Model::CompletedPart part;
+	part.SetETag(result.GetETag());
+	part.SetPartNumber(writer.part_tracker_);
+	writer.parts_.push_back(std::move(part));
+	writer.part_tracker_++;
+}
+
 UploadOutcome UploadPart(Writer& writer)
 {
-	auto& buffer = writer.buffer_;
-	Aws::Utils::Stream::PreallocatedStreamBuf pre_buf(buffer.data(), buffer.size());
-	const auto body = Aws::MakeShared<Aws::IOStream>(S3EndpointProvider, &pre_buf);
-
-	const auto& w = writer.writer_;
-	Aws::S3::Model::UploadPartRequest request;
-	request.WithBucket(w.GetBucket())
-	    .WithKey(w.GetKey())
-	    .WithUploadId(w.GetUploadId())
-	    .WithPartNumber(writer.part_tracker_);
-	request.SetBody(body);
-
-	auto outcome = client->UploadPart(request);
+	auto outcome = client->UploadPart(MakeUploadPartRequest(writer));
 	RETURN_OUTCOME_ON_ERROR(outcome);
 
-	// get the last pieces of upload metadata
-	auto& parts = writer.parts_;
-	parts.emplace_back();
-	auto& last_part = parts.back();
-	last_part.SetETag(std::move(outcome.GetResult().GetETag()));
-	last_part.SetPartNumber(writer.part_tracker_);
-	writer.part_tracker_++;
+	UpdateUploadMetadata(writer, outcome.GetResult());
+
+	return true;
+}
+
+UploadOutcome UploadPartCopy(Writer& writer, const Aws::String& byte_range)
+{
+	auto outcome = client->UploadPartCopy(MakeUploadPartCopyRequest(writer, byte_range));
+	RETURN_OUTCOME_ON_ERROR(outcome);
+	UpdateUploadMetadata(writer, outcome.GetResult().GetCopyPartResult());
+	return true;
+}
+
+UploadOutcome InitiateAppend(Writer& writer, const Aws::S3::Model::HeadObjectResult& metadata)
+{
+	// Make the requests to copy the source file.
+	// If the source file is smaller than 5MB, the source needs to be
+	// stored in an internal buffer and wait until more data arrives.
+	//
+	// Conversely, if the source file exceeds 5GB, the copy will be done
+	// by parts. If the last part is smaller than 5MB, the last data range
+	// will be copied into the internal buffer and wait there.
+
+	const auto& multipartupload_data = writer.writer_;
+	const long long file_size = metadata.GetContentLength();
+	long long to_copy = file_size;
+	int64_t start_range = 0;
+	while (to_copy > Writer::buff_min_)
+	{
+		int64_t end_range =
+		    to_copy > Writer::buff_max_ ? start_range + Writer::buff_max_ : start_range + to_copy;
+		auto outcome = UploadPartCopy(writer, MakeByteRange(start_range, end_range));
+		PASS_OUTCOME_ON_ERROR(outcome);
+
+		to_copy -= (end_range - start_range);
+		start_range = end_range;
+	}
+
+	// copy in the internal buffer what remains from the source.
+	if (to_copy > 0)
+	{
+		auto outcome =
+		    DownloadFileRangeToBuffer(multipartupload_data.GetBucket(), multipartupload_data.GetKey(),
+					      writer.buffer_.data(), start_range, start_range + to_copy);
+		PASS_OUTCOME_ON_ERROR(outcome);
+	}
 
 	return true;
 }
@@ -1123,6 +1206,66 @@ void* driver_fopen(const char* filename, char mode)
 		KH_S3_REGISTER_STREAM(Writer, "Error while opening writer stream");
 	}
 	case 'a':
+	{
+		// identify the concrete target of the append
+		Aws::String target;
+
+		size_t pattern_1st_sp_char_pos = 0;
+		if (IsMultifile(names.object_, pattern_1st_sp_char_pos))
+		{
+			const auto file_list_outcome =
+			    FilterList(names.bucket_, names.object_, pattern_1st_sp_char_pos);
+			RETURN_ON_ERROR(file_list_outcome, "Error while looking for existing file", nullptr);
+			const ObjectsVec& file_list = file_list_outcome.GetResult();
+
+			if (!file_list.empty())
+			{
+				target = file_list.back().GetKey();
+			}
+			else
+			{
+				spdlog::debug("No match for the file pattern.");
+			}
+		}
+		else
+		{
+			target = names.object_;
+		}
+
+		// if file does not already exist, fallback to simple write mode
+		auto head_outcome = HeadObject(names.bucket_, target);
+		if (!head_outcome.IsSuccess())
+		{
+			auto& error = head_outcome.GetError();
+			if (error.GetErrorType() == Aws::S3::S3Errors::NO_SUCH_KEY)
+			{
+				// source file not found, fallback to simple write mode
+				spdlog::debug("No source file to append to, falling back to simple write.");
+				KH_S3_REGISTER_STREAM(Writer, "Error while opening writer stream");
+			}
+			else
+			{
+				// genuine error
+				LogBadOutcome(head_outcome, "Error while opening append stream");
+				return nullptr;
+			}
+		}
+
+		// file exists, but is immutable. the strategy is to copy the content to a new version of the file,
+		// add the new content with writes and complete, deleting the previous version of the file at the end
+		// of the process
+		// for the opening, gather the origin file metadata and issue the request to copy its parts
+		auto register_outcome = RegisterWriter(std::move(names.bucket_), std::move(target));
+		RETURN_ON_ERROR(register_outcome, "Error while opening append stream", nullptr);
+		auto writer_ptr = register_outcome.GetResult();
+		writer_ptr->append_target_ = head_outcome.GetResult().GetVersionId();
+
+		// requests for copy
+		const auto init_outcome = InitiateAppend(*writer_ptr, head_outcome.GetResult());
+		RETURN_ON_ERROR(init_outcome, "Error while initiating append stream", nullptr);
+
+		return writer_ptr;
+	}
 	default:
 		LogError("Invalid open mode " + mode);
 		return nullptr;
@@ -1153,25 +1296,20 @@ int driver_fclose(void* stream)
 		// end multipart upload
 		// first, flush the pending data
 		auto& writer = **writer_h_it;
-		auto outcome = UploadPart(writer);
-		RETURN_ON_ERROR(outcome, "Error during upload", kCloseEOF);
+		const auto upload_outcome = UploadPart(writer);
+		RETURN_ON_ERROR(upload_outcome, "Error during upload", kCloseEOF);
 
 		// close upload
-		const auto& upload_data = writer.writer_;
-		Aws::S3::Model::CompletedMultipartUpload request_body;
-		request_body.SetParts(writer.parts_);
-		Aws::S3::Model::CompleteMultipartUploadRequest request;
-		request.WithBucket(upload_data.GetBucket())
-		    .WithKey(upload_data.GetKey())
-		    .WithUploadId(upload_data.GetUploadId())
-		    .WithMultipartUpload(std::move(request_body));
+		const auto complete_outcome =
+		    client->CompleteMultipartUpload(MakeCompleteMultipartUploadRequest(writer));
 
-		auto complete_outcome = client->CompleteMultipartUpload(request);
-
-		// always delete handle
-		EraseRemove(active_writer_handles, writer_h_it);
-
+		// the request can fail and allow retries.
+		// if the request fails, the parts are still present on server side!
+		// to be able to delete the parts, the writer handle must remain in
+		// the list of active handles.
 		RETURN_ON_ERROR(complete_outcome, "Error completing upload while closing stream", kCloseEOF);
+
+		EraseRemove(active_writer_handles, writer_h_it);
 	}
 
 	LogError("Cannot identify stream");
@@ -1316,7 +1454,7 @@ long long int driver_fread(void* ptr, size_t size, size_t count, void* stream)
 		spdlog::debug("offset = {} to_read = {}", offset, to_read);
 	}
 
-	auto read_outcome = ReadBytesInFile(h, reinterpret_cast<char*>(ptr), to_read);
+	auto read_outcome = ReadBytesInFile(h, reinterpret_cast<unsigned char*>(ptr), to_read);
 	RETURN_ON_ERROR(read_outcome, "Error while reading from file", kBadSize);
 
 	return read_outcome.GetResult();
@@ -1382,7 +1520,6 @@ long long int driver_fwrite(const void* ptr, size_t size, size_t count, void* st
 	// upload the content of the buffer until the size of the remaining data is smaller than the minimum upload size
 	while (buffer.size() >= WriteFile::buff_min_)
 	{
-		// TODO replace below with uploadpart function
 		auto outcome = UploadPart(*h_ptr);
 		RETURN_ON_ERROR(outcome, "Error during upload", kBadSize);
 
