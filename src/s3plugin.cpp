@@ -577,13 +577,13 @@ template <typename PartRequest> PartRequest MakeBaseUploadPartRequest(const Writ
 	return MakeBaseUploadRequest<PartRequest>(writer).WithPartNumber(writer.part_tracker_);
 }
 
-Aws::S3::Model::UploadPartRequest MakeUploadPartRequest(Writer& writer)
+Aws::S3::Model::UploadPartRequest MakeUploadPartRequest(Writer& writer,
+							Aws::Utils::Stream::PreallocatedStreamBuf& pre_buf)
 {
 	Aws::S3::Model::UploadPartRequest request =
 	    MakeBaseUploadPartRequest<Aws::S3::Model::UploadPartRequest>(writer);
 
 	auto& buffer = writer.buffer_;
-	Aws::Utils::Stream::PreallocatedStreamBuf pre_buf(buffer.data(), buffer.size());
 	const auto body = Aws::MakeShared<Aws::IOStream>(S3EndpointProvider, &pre_buf);
 	request.SetBody(body);
 	return request;
@@ -1138,7 +1138,10 @@ template <typename Result> void UpdateUploadMetadata(Writer& writer, const Resul
 
 UploadOutcome UploadPart(Writer& writer)
 {
-	auto outcome = client->UploadPart(MakeUploadPartRequest(writer));
+	auto& buffer = writer.buffer_;
+	Aws::Utils::Stream::PreallocatedStreamBuf pre_buf(buffer.data(), buffer.size());
+	const auto request = MakeUploadPartRequest(writer, pre_buf);
+	auto outcome = client->UploadPart(request);
 	RETURN_OUTCOME_ON_ERROR(outcome);
 
 	UpdateUploadMetadata(writer, outcome.GetResult());
