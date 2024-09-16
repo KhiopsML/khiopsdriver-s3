@@ -1317,6 +1317,8 @@ int driver_fclose(void* stream)
 		RETURN_ON_ERROR(complete_outcome, "Error completing upload while closing stream", kCloseEOF);
 
 		EraseRemove(active_writer_handles, writer_h_it);
+
+		return kCloseSuccess;
 	}
 
 	LogError("Cannot identify stream");
