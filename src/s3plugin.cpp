@@ -28,6 +28,7 @@
 
 #include <algorithm>
 #include <assert.h>
+#include <cstdlib>
 #include <fstream>
 #include <iostream>
 #include <limits>
@@ -449,7 +450,7 @@ ParseURIOutcome ParseS3Uri(const Aws::String& s3_uri)
 
 Aws::String GetEnvironmentVariableOrDefault(const Aws::String& variable_name, const Aws::String& default_value)
 {
-	const char* value = getenv(variable_name.c_str());
+	const char* value = std::getenv(variable_name.c_str());
 	return value ? value : default_value;
 }
 
