@@ -628,6 +628,11 @@ int driver_isReadOnly()
 
 int driver_connect()
 {
+	if (kTrue == bIsConnected)
+	{
+		spdlog::debug("Driver is already connected");
+		return kSuccess;
+	}
 
 	auto file_exists = [](const Aws::String& name)
 	{
@@ -1108,12 +1113,12 @@ RegisterStream(std::function<SimpleOutcome<Aws::UniquePtr<Stream>>(Aws::String, 
 
 SimpleOutcome<Reader*> RegisterReader(Aws::String&& bucket, Aws::String&& object)
 {
-	return RegisterStream<ReaderPtr>(MakeReaderPtr, std::move(bucket), std::move(object));
+	return RegisterStream<Reader>(MakeReaderPtr, std::move(bucket), std::move(object));
 }
 
 SimpleOutcome<Writer*> RegisterWriter(Aws::String&& bucket, Aws::String&& object)
 {
-	return RegisterStream<WriterPtr>(MakeWriterPtr, std::move(bucket), std::move(object));
+	return RegisterStream<Writer>(MakeWriterPtr, std::move(bucket), std::move(object));
 }
 
 #define KH_S3_REGISTER_STREAM(type, err_msg)                                                                           \
@@ -1148,7 +1153,7 @@ UploadOutcome UploadPartCopy(Writer& writer, const Aws::String& byte_range)
 	return true;
 }
 
-UploadOutcome InitiateAppend(Writer& writer, const Aws::S3::Model::HeadObjectResult& metadata)
+UploadOutcome InitiateAppend(Writer& writer, long long source_bytes_to_copy)
 {
 	// Make the requests to copy the source file.
 	// If the source file is smaller than 5MB, the source needs to be
@@ -1159,26 +1164,24 @@ UploadOutcome InitiateAppend(Writer& writer, const Aws::S3::Model::HeadObjectRes
 	// will be copied into the internal buffer and wait there.
 
 	const auto& multipartupload_data = writer.writer_;
-	const long long file_size = metadata.GetContentLength();
-	long long to_copy = file_size;
 	int64_t start_range = 0;
-	while (to_copy > Writer::buff_min_)
+	while (source_bytes_to_copy > Writer::buff_min_)
 	{
-		int64_t end_range =
-		    to_copy > Writer::buff_max_ ? start_range + Writer::buff_max_ : start_range + to_copy;
+		int64_t end_range = source_bytes_to_copy > Writer::buff_max_ ? start_range + Writer::buff_max_
+									     : start_range + source_bytes_to_copy;
 		auto outcome = UploadPartCopy(writer, MakeByteRange(start_range, end_range));
 		PASS_OUTCOME_ON_ERROR(outcome);
 
-		to_copy -= (end_range - start_range);
+		source_bytes_to_copy -= (end_range - start_range);
 		start_range = end_range;
 	}
 
 	// copy in the internal buffer what remains from the source.
-	if (to_copy > 0)
+	if (source_bytes_to_copy > 0)
 	{
 		auto outcome =
 		    DownloadFileRangeToBuffer(multipartupload_data.GetBucket(), multipartupload_data.GetKey(),
-					      writer.buffer_.data(), start_range, start_range + to_copy);
+					      writer.buffer_.data(), start_range, start_range + source_bytes_to_copy);
 		PASS_OUTCOME_ON_ERROR(outcome);
 	}
 
@@ -1261,7 +1264,7 @@ void* driver_fopen(const char* filename, char mode)
 		writer_ptr->append_target_ = head_outcome.GetResult().GetVersionId();
 
 		// requests for copy
-		const auto init_outcome = InitiateAppend(*writer_ptr, head_outcome.GetResult());
+		const auto init_outcome = InitiateAppend(*writer_ptr, head_outcome.GetResult().GetContentLength());
 		RETURN_ON_ERROR(init_outcome, "Error while initiating append stream", nullptr);
 
 		return writer_ptr;
