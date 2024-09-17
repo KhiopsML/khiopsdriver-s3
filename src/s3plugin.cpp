@@ -583,7 +583,6 @@ Aws::S3::Model::UploadPartRequest MakeUploadPartRequest(Writer& writer,
 	Aws::S3::Model::UploadPartRequest request =
 	    MakeBaseUploadPartRequest<Aws::S3::Model::UploadPartRequest>(writer);
 
-	auto& buffer = writer.buffer_;
 	const auto body = Aws::MakeShared<Aws::IOStream>(S3EndpointProvider, &pre_buf);
 	request.SetBody(body);
 	return request;
@@ -1157,7 +1156,7 @@ UploadOutcome UploadPartCopy(Writer& writer, const Aws::String& byte_range)
 	return true;
 }
 
-UploadOutcome InitiateAppend(Writer& writer, long long source_bytes_to_copy)
+UploadOutcome InitiateAppend(Writer& writer, size_t source_bytes_to_copy)
 {
 	// Make the requests to copy the source file.
 	// If the source file is smaller than 5MB, the source needs to be
@@ -1268,7 +1267,8 @@ void* driver_fopen(const char* filename, char mode)
 		writer_ptr->append_target_ = head_outcome.GetResult().GetVersionId();
 
 		// requests for copy
-		const auto init_outcome = InitiateAppend(*writer_ptr, head_outcome.GetResult().GetContentLength());
+		const auto init_outcome =
+		    InitiateAppend(*writer_ptr, static_cast<size_t>(head_outcome.GetResult().GetContentLength()));
 		RETURN_ON_ERROR(init_outcome, "Error while initiating append stream", nullptr);
 
 		return writer_ptr;
