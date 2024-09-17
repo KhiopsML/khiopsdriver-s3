@@ -60,9 +60,9 @@ struct WriteFile
 
 	WriteFile() = default;
 	WriteFile(Aws::S3::Model::CreateMultipartUploadResult&& create_upload_result)
-	    : writer_{std::move(create_upload_result)}, buffer_(buff_min_), bucketname_{writer_.GetBucket()},
-	      filename_{writer_.GetKey()}
+	    : writer_{std::move(create_upload_result)}, bucketname_{writer_.GetBucket()}, filename_{writer_.GetKey()}
 	{
+		buffer_.reserve(buff_min_);
 	}
 
 	~WriteFile() = default;
