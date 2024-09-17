@@ -359,9 +359,10 @@ protected:
     // Setup AWS API
     Aws::InitAPI(options_);
 
-    mock_client_alias_ = Aws::New<MockS3Client>("S3_TEST");
-    mock_client_ = dynamic_cast<MockS3Client *>(mock_client_alias_);
-    test_setClient(mock_client_alias_);
+    S3Client *concrete_mock = Aws::New<MockS3Client>("S3_TEST");
+    auto mock_client_alias = Aws::UniquePtr<S3Client>(concrete_mock);
+    mock_client_ = dynamic_cast<MockS3Client *>(concrete_mock);
+    test_setClient(std::move(mock_client_alias));
   }
 
   void TearDown() override {
@@ -379,7 +380,6 @@ public:
   // the fixture passes a raw pointer to the driver state for it to own. All is
   // well as long as gtest runs the tests sequentially, otherwise the whole
   // thing blows up.
-  S3Client *mock_client_alias_ = nullptr;
   MockS3Client *mock_client_ = nullptr; // avoid repeated casts by casting once
                                         // in setup. not owning, do not free!
 

@@ -59,10 +59,9 @@ constexpr const char* nullptr_msg_stub = "Error passing null pointer to ";
 
 // test utilities
 
-void test_setClient(Aws::S3::S3Client* mock_client)
+void test_setClient(Aws::UniquePtr<Aws::S3::S3Client>&& mock_client_ptr)
 {
-	client = Aws::MakeUnique<Aws::S3::S3Client>("S3_TEST");
-	client.reset(mock_client);
+	client = std::move(mock_client_ptr);
 	bIsConnected = kTrue;
 }
 

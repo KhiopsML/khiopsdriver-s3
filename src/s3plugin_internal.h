@@ -107,7 +107,7 @@ extern "C"
 {
 #endif /* __cplusplus */
 
-	VISIBLE void test_setClient(Aws::S3::S3Client* mock_client);
+	VISIBLE void test_setClient(Aws::UniquePtr<Aws::S3::S3Client>&& mock_client);
 
 	VISIBLE void test_unsetClient();
 
