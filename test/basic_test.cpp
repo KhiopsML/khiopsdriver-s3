@@ -374,12 +374,12 @@ protected:
 
 public:
   // Note: a bit of "rodeo" here: the driver state contains a
-  // unique_ptr<S3Client> that will be set by the test SetUp and unset by the
-  // test TearDown. We can't just pass a pointer owned by a shared_ptr, there
-  // would be conflicts when freeing the associated memory. So, for each test,
-  // the fixture passes a raw pointer to the driver state for it to own. All is
-  // well as long as gtest runs the tests sequentially, otherwise the whole
-  // thing blows up.
+  // Aws::UniquePtr<S3Client> that will be set by the test SetUp and
+  // unset by the test TearDown. We can't just pass a pointer owned by a
+  // shared_ptr, there would be conflicts when freeing the associated memory.
+  // So, for each test, the fixture passes a raw pointer to the driver state for
+  // it to own. All is well as long as gtest runs the tests sequentially,
+  // otherwise the whole thing blows up.
   MockS3Client *mock_client_ = nullptr; // avoid repeated casts by casting once
                                         // in setup. not owning, do not free!
 

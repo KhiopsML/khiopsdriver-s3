@@ -794,6 +794,8 @@ int driver_disconnect()
 	active_writer_handles.clear();
 	active_reader_handles.clear();
 
+	client.reset();
+
 	ShutdownAPI(options);
 
 	bIsConnected = kFalse;
@@ -1511,13 +1513,14 @@ long long int driver_fwrite(const void* ptr, size_t size, size_t count, void* st
 		buffer.reserve(next_size > WriteFile::buff_max_ ? (WriteFile::buff_max_ / size) * size : next_size);
 	}
 
-	// copy up to capacity for now
+	// copy up to capacity or the whole data for now
 	size_t remain = to_write;
-	size_t copy_count = buffer.capacity() - buffer.size();
-	const unsigned char* ptr_cast_pos = static_cast<const unsigned char*>(ptr);
+	const size_t available = buffer.capacity() - buffer.size();
+	size_t copy_count = std::min(available, remain);
+	const unsigned char* ptr_cast_pos = reinterpret_cast<const unsigned char*>(ptr);
 
 	auto copy_and_update =
-	    [](Aws::Vector<unsigned char>& dest, const unsigned char** src_start, size_t& count, size_t& remain)
+	    [](Aws::Vector<unsigned char>& dest, const unsigned char** src_start, size_t count, size_t& remain)
 	{
 		dest.insert(dest.end(), *src_start, (*src_start) + count);
 		(*src_start) += count;
