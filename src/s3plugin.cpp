@@ -274,6 +274,7 @@ Aws::String MakeByteRange(int64_t start, int64_t end)
 SizeOutcome DownloadFileRangeToBuffer(const Aws::String& bucket, const Aws::String& object_name, unsigned char* buffer,
 				      std::int64_t start_range, std::int64_t end_range)
 {
+	// Note: AWS byte ranges are inclusive
 	auto request = MakeGetObjectRequest(bucket, object_name, MakeByteRange(start_range, end_range));
 	auto outcome = client->GetObject(request);
 	RETURN_OUTCOME_ON_ERROR(outcome);
@@ -281,7 +282,8 @@ SizeOutcome DownloadFileRangeToBuffer(const Aws::String& bucket, const Aws::Stri
 	// get ownership of the result and its underlying stream
 	Aws::S3::Model::GetObjectResult result{outcome.GetResultWithOwnership()};
 	auto& stream = result.GetBody();
-	stream.read(reinterpret_cast<char*>(buffer), end_range - start_range);
+	// remember comment above about inclusive byte ranges
+	stream.read(reinterpret_cast<char*>(buffer), end_range - start_range + 1);
 
 	if (stream.bad())
 	{
@@ -332,7 +334,7 @@ SizeOutcome ReadBytesInFile(MultiPartFile& multifile, unsigned char* buffer, tOf
 		buffer_pos += actual_read;
 		offset += actual_read;
 
-		if (actual_read < (end - start) /*expected read*/)
+		if (actual_read < (end - start + 1) /*expected read*/)
 		{
 			spdlog::debug("End of file encountered");
 			to_read = 0;
@@ -347,8 +349,9 @@ SizeOutcome ReadBytesInFile(MultiPartFile& multifile, unsigned char* buffer, tOf
 
 	// first file read
 
+	// AWS peculiarity: byte ranges are inclusive
 	const tOffset file_start = (idx == 0) ? offset : offset - cumul_sizes[idx - 1] + common_header_length;
-	const tOffset read_end = std::min(file_start + to_read, file_start + cumul_sizes[idx] - offset);
+	const tOffset read_end = std::min(file_start + to_read, file_start + cumul_sizes[idx] - offset) - 1;
 
 	SizeOutcome read_outcome = read_range_and_update(filenames[idx], file_start, read_end);
 
@@ -358,7 +361,7 @@ SizeOutcome ReadBytesInFile(MultiPartFile& multifile, unsigned char* buffer, tOf
 		// read the missing bytes in the next files as necessary
 		idx++;
 		const tOffset start = common_header_length;
-		const tOffset end = std::min(start + to_read, start + cumul_sizes[idx] - cumul_sizes[idx - 1]);
+		const tOffset end = std::min(start + to_read, start + cumul_sizes[idx] - cumul_sizes[idx - 1]) - 1;
 
 		read_outcome = read_range_and_update(filenames[idx], start, end);
 	}
@@ -1171,21 +1174,26 @@ UploadOutcome InitiateAppend(Writer& writer, size_t source_bytes_to_copy)
 	int64_t start_range = 0;
 	while (source_bytes_to_copy > Writer::buff_min_)
 	{
-		int64_t end_range = source_bytes_to_copy > Writer::buff_max_ ? start_range + Writer::buff_max_
-									     : start_range + source_bytes_to_copy;
+		const size_t copy_count =
+		    source_bytes_to_copy > Writer::buff_max_ ? Writer::buff_max_ : source_bytes_to_copy;
+
+		// peculiarity of AWS: the range for the copy request has an inclusive end,
+		// meaning that the bytes numbered start_range to end_range included are copied
+		const int64_t end_range = start_range + copy_count - 1;
 		auto outcome = UploadPartCopy(writer, MakeByteRange(start_range, end_range));
 		PASS_OUTCOME_ON_ERROR(outcome);
 
-		source_bytes_to_copy -= (end_range - start_range);
-		start_range = end_range;
+		source_bytes_to_copy -= copy_count;
+		start_range += copy_count;
 	}
 
 	// copy in the internal buffer what remains from the source.
 	if (source_bytes_to_copy > 0)
 	{
-		auto outcome =
-		    DownloadFileRangeToBuffer(multipartupload_data.GetBucket(), multipartupload_data.GetKey(),
-					      writer.buffer_.data(), start_range, start_range + source_bytes_to_copy);
+		// reminder: byte ranges are inclusive
+		auto outcome = DownloadFileRangeToBuffer(multipartupload_data.GetBucket(),
+							 multipartupload_data.GetKey(), writer.buffer_.data(),
+							 start_range, start_range + source_bytes_to_copy - 1);
 		PASS_OUTCOME_ON_ERROR(outcome);
 	}
 
