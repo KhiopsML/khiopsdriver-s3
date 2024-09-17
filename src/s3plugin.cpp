@@ -1516,14 +1516,15 @@ long long int driver_fwrite(const void* ptr, size_t size, size_t count, void* st
 	size_t copy_count = buffer.capacity() - buffer.size();
 	const unsigned char* ptr_cast_pos = static_cast<const unsigned char*>(ptr);
 
-	auto copy_and_update = [&]()
+	auto copy_and_update =
+	    [](Aws::Vector<unsigned char>& dest, const unsigned char** src_start, size_t& count, size_t& remain)
 	{
-		buffer.insert(buffer.end(), ptr_cast_pos, ptr_cast_pos + copy_count);
-		ptr_cast_pos += copy_count;
-		remain -= copy_count;
+		dest.insert(dest.end(), *src_start, (*src_start) + count);
+		(*src_start) += count;
+		remain -= count;
 	};
 
-	copy_and_update();
+	copy_and_update(buffer, &ptr_cast_pos, copy_count, remain);
 
 	// upload the content of the buffer until the size of the remaining data is smaller than the minimum upload size
 	while (buffer.size() >= WriteFile::buff_min_)
@@ -1534,7 +1535,7 @@ long long int driver_fwrite(const void* ptr, size_t size, size_t count, void* st
 		// copy remaining data up to capacity
 		buffer.clear();
 		copy_count = std::min(remain, buffer.capacity());
-		copy_and_update();
+		copy_and_update(buffer, &ptr_cast_pos, copy_count, remain);
 	}
 
 	// release unused memory
