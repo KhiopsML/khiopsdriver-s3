@@ -45,7 +45,7 @@ int bIsConnected = false;
 constexpr const char* S3EndpointProvider = "KHIOPS_ML_S3";
 
 Aws::SDKOptions options;
-Aws::UniquePtr<Aws::S3::S3Client> client;
+std::shared_ptr<Aws::S3::S3Client> client;
 
 // Global bucket name
 Aws::String globalBucketName = "";
@@ -91,6 +91,10 @@ void* test_getActiveReaderHandles()
 void* test_getActiveWriterHandles()
 {
 	return &active_writer_handles;
+}
+
+void* test_getClient() {
+	return client.get();
 }
 
 #define KH_S3_NOT_CONNECTED(err_val)                                                                                   \
@@ -748,7 +752,7 @@ int driver_connect()
 		configCredentials = Aws::Auth::AWSCredentials(s3accessKey, s3secretKey);
 	}
 
-	client = Aws::MakeUnique<Aws::S3::S3Client>(S3EndpointProvider, configCredentials,
+	client = Aws::MakeShared<Aws::S3::S3Client>(S3EndpointProvider, configCredentials,
 						    Aws::MakeShared<Aws::S3::S3EndpointProvider>(S3EndpointProvider),
 						    clientConfig);
 
