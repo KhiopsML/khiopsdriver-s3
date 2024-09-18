@@ -866,6 +866,9 @@ int driver_fileExists(const char* sFilePathName)
 	{
 		//go ahead with the simple request
 		const auto head_object_outcome = HeadObject(names.bucket_, names.object_);
+		if (head_object_outcome.GetError().GetErrorType() == Aws::S3::S3Errors::RESOURCE_NOT_FOUND) {
+			return kFalse;
+		}
 		RETURN_ON_ERROR(head_object_outcome, "Failed retrieving file info in fileExists", kFalse);
 
 		return kTrue;
@@ -1256,7 +1259,7 @@ void* driver_fopen(const char* filename, char mode)
 		if (!head_outcome.IsSuccess())
 		{
 			auto& error = head_outcome.GetError();
-			if (error.GetErrorType() == Aws::S3::S3Errors::NO_SUCH_KEY)
+			if (error.GetErrorType() == Aws::S3::S3Errors::NO_SUCH_KEY || error.GetErrorType() == Aws::S3::S3Errors::RESOURCE_NOT_FOUND)
 			{
 				// source file not found, fallback to simple write mode
 				spdlog::debug("No source file to append to, falling back to simple write.");

@@ -69,7 +69,6 @@ TEST(GCSDriverTest, End2EndTest_SingleFile_512B_OK) {
   ASSERT_EQ(test_status, kSuccess);
 }
 
-#if 0
 TEST(GCSDriverTest, End2EndTest_MultipartBQFile_512KB_OK)
 {
 	const char* inputFilename = "s3://diod-data-di-jupyterhub/khiops_data/bq_export/Adult/Adult-split-00000000000*.txt";
@@ -117,7 +116,6 @@ TEST(GCSDriverTest, End2EndTest_MultipartSubsplitFile_512KB_OK)
 	int test_status = launch_test(inputFilename, nBufferSize);
     ASSERT_EQ(test_status, kSuccess);
 }
-#endif
 
 int launch_test(const char *inputFilename, int nBufferSize) {
   int test_status = kSuccess;
