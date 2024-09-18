@@ -28,6 +28,7 @@
 
 #include <algorithm>
 #include <assert.h>
+#include <cstdio>
 #include <cstdlib>
 #include <fstream>
 #include <iostream>
@@ -1635,49 +1636,106 @@ long long int driver_diskFreeSpace(const char* filename)
 
 int driver_copyToLocal(const char* sSourceFilePathName, const char* sDestFilePathName)
 {
-	KH_S3_NOT_CONNECTED(kBadSize);
+	KH_S3_NOT_CONNECTED(kFailure);
+	ERROR_ON_NULL_ARG(sSourceFilePathName, kFailure);
+	ERROR_ON_NULL_ARG(sDestFilePathName, kFailure);
 
 	spdlog::debug("copyToLocal {} {}", sSourceFilePathName, sDestFilePathName);
 
-	ERROR_ON_NULL_ARG(sSourceFilePathName, kBadSize);
-	ERROR_ON_NULL_ARG(sDestFilePathName, kBadSize);
-	NAMES_OR_ERROR(sSourceFilePathName, kBadSize);
-	// std::string bucket_name, object_name;
-	// ParseS3Uri(sSourceFilePathName, bucket_name, object_name);
-	// FallbackToDefaultBucket(bucket_name);
+	// try opening the online source file
+	NAMES_OR_ERROR(sSourceFilePathName, kFailure);
+	auto make_reader_outcome = MakeReaderPtr(names.bucket_, names.object_);
+	RETURN_ON_ERROR(make_reader_outcome, "Error while opening remote file", kFailure);
 
-	// Configuration de la requête pour obtenir un objet
-	Aws::S3::Model::GetObjectRequest object_request;
-	object_request.WithBucket(names.bucket_).WithKey(names.object_);
-
-	// Exécution de la requête
-	auto get_object_outcome = client->GetObject(object_request);
-	long long int num_read = -1;
-
-	if (!get_object_outcome.IsSuccess())
-	{
-		spdlog::error("Error initializing download stream: {}", get_object_outcome.GetError().GetMessage());
-		return false;
-	}
-
-	// Open the local file
+	// open local file
 	std::ofstream file_stream(sDestFilePathName, std::ios::binary);
 	if (!file_stream.is_open())
 	{
-		spdlog::error("Failed to open local file for writing: {}", sDestFilePathName);
-		return false;
+		std::ostringstream oss;
+		oss << "Failed to open local file for writing: " << sDestFilePathName;
+		LogError(oss.str());
+		return kFailure;
 	}
 
-	// Téléchargement réussi, copie des données vers le fichier local
-	file_stream << get_object_outcome.GetResult().GetBody().rdbuf();
+	auto read_and_write = [](const Reader& from, size_t part, std::ofstream& to_file) -> bool
+	{
+		// limit download to a few MBs at a time.
+		constexpr long long dl_limit{10 * 1024 * 1024};
+
+		auto size_from_cumulative_sizes = [](const Aws::Vector<long long>& cumul, size_t part) -> long long
+		{
+			if (0 == part)
+			{
+				return cumul[0];
+			}
+			return cumul[part] - cumul[part - 1];
+		};
+
+		// file metadata
+		const Aws::String& file_name = from.filenames_[part];
+		const long long file_size = size_from_cumulative_sizes(from.cumulative_sizes_, part);
+		const long long header_size = from.common_header_length_;
+
+		// download range limits
+		const long long end_limit = file_size - 1;
+		long long start = 0 == part ? 0 : header_size;
+		long long end = std::min(start + dl_limit - 1, end_limit);
+
+		//download by pieces
+		while (to_file && start < end_limit)
+		{
+			const auto request =
+			    MakeGetObjectRequest(from.bucketname_, from.filenames_[part], MakeByteRange(start, end));
+			auto get_outcome = client->GetObject(request);
+			RETURN_ON_ERROR(get_outcome, "Error while downloading file content", false);
+
+			// get ownership of the result and its underlying stream
+			const Aws::S3::Model::GetObjectResult result{get_outcome.GetResultWithOwnership()};
+			to_file << result.GetBody().rdbuf();
+
+			start +=
+			    result
+				.GetContentLength(); // a bit of security for now: could the downloading be incomplete?
+			end = std::min(start + dl_limit - 1, end_limit);
+		}
+		// what made the process stop?
+		if (!to_file)
+		{
+			// something went wrong on write side, abort
+			LogError("Error while writing data to local file");
+			return false;
+		}
+
+		return true;
+	};
+
+	const Reader& reader = *(make_reader_outcome.GetResult());
+	const size_t parts_count{reader.filenames_.size()};
+
+	bool op_res = true;
+	for (size_t part = 0; part < parts_count && op_res; part++)
+	{
+		op_res = read_and_write(reader, part, file_stream);
+	}
+
 	file_stream.close();
 
-	spdlog::debug("Close output");
-	file_stream.close();
+	if (!op_res || !file_stream)
+	{
+		LogError("Error copying remote file to local storage.");
+		spdlog::debug("Attempting to remove local file.");
+		if (0 != std::remove(sDestFilePathName))
+		{
+			LogError("Error attempting to remove local file.");
+		}
+		spdlog::debug("Successful file removal.");
 
-	spdlog::debug("Done copying");
+		return kFailure;
+	}
 
-	return 1;
+	spdlog::debug("Successful local copy of remote file.");
+
+	return kSuccess;
 }
 
 int driver_copyFromLocal(const char* sSourceFilePathName, const char* sDestFilePathName)
