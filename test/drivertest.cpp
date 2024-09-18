@@ -69,52 +69,53 @@ TEST(GCSDriverTest, End2EndTest_SingleFile_512B_OK) {
   ASSERT_EQ(test_status, kSuccess);
 }
 
-TEST(GCSDriverTest, End2EndTest_MultipartBQFile_512KB_OK)
-{
-	const char* inputFilename = "s3://diod-data-di-jupyterhub/khiops_data/bq_export/Adult/Adult-split-00000000000*.txt";
+TEST(GCSDriverTest, End2EndTest_MultipartBQFile_512KB_OK) {
+  const char *inputFilename = "s3://diod-data-di-jupyterhub/khiops_data/"
+                              "bq_export/Adult/Adult-split-00000000000*.txt";
 
-	/* default size of buffer passed to driver */
-	int nBufferSize = 512 * 1024;
+  /* default size of buffer passed to driver */
+  int nBufferSize = 512 * 1024;
 
-	/* error indicator in case of error */
-	int test_status = launch_test(inputFilename, nBufferSize);
-    ASSERT_EQ(test_status, kSuccess);
+  /* error indicator in case of error */
+  int test_status = launch_test(inputFilename, nBufferSize);
+  ASSERT_EQ(test_status, kSuccess);
 }
 
-TEST(GCSDriverTest, End2EndTest_MultipartBQEmptyFile_512KB_OK)
-{
-	const char* inputFilename = "s3://diod-data-di-jupyterhub/khiops_data/bq_export/Adult_empty/Adult-split-00000000000*.txt";
+TEST(GCSDriverTest, End2EndTest_MultipartBQEmptyFile_512KB_OK) {
+  const char *inputFilename =
+      "s3://diod-data-di-jupyterhub/khiops_data/bq_export/Adult_empty/"
+      "Adult-split-00000000000*.txt";
 
-	/* default size of buffer passed to driver */
-	int nBufferSize = 512 * 1024;
+  /* default size of buffer passed to driver */
+  int nBufferSize = 512 * 1024;
 
-	/* error indicator in case of error */
-	int test_status = launch_test(inputFilename, nBufferSize);
-    ASSERT_EQ(test_status, kSuccess);
+  /* error indicator in case of error */
+  int test_status = launch_test(inputFilename, nBufferSize);
+  ASSERT_EQ(test_status, kSuccess);
 }
 
-TEST(GCSDriverTest, End2EndTest_MultipartSplitFile_512KB_OK)
-{
-	const char* inputFilename = "s3://diod-data-di-jupyterhub/khiops_data/split/Adult/Adult-split-0*.txt";
+TEST(GCSDriverTest, End2EndTest_MultipartSplitFile_512KB_OK) {
+  const char *inputFilename =
+      "s3://diod-data-di-jupyterhub/khiops_data/split/Adult/Adult-split-0*.txt";
 
-	/* default size of buffer passed to driver */
-	int nBufferSize = 512 * 1024;
+  /* default size of buffer passed to driver */
+  int nBufferSize = 512 * 1024;
 
-	/* error indicator in case of error */
-	int test_status = launch_test(inputFilename, nBufferSize);
-    ASSERT_EQ(test_status, kSuccess);
+  /* error indicator in case of error */
+  int test_status = launch_test(inputFilename, nBufferSize);
+  ASSERT_EQ(test_status, kSuccess);
 }
 
-TEST(GCSDriverTest, End2EndTest_MultipartSubsplitFile_512KB_OK)
-{
-	const char* inputFilename = "s3://diod-data-di-jupyterhub/khiops_data/split/Adult_subsplit/**/Adult-split-0*.txt";
+TEST(GCSDriverTest, End2EndTest_MultipartSubsplitFile_512KB_OK) {
+  const char *inputFilename = "s3://diod-data-di-jupyterhub/khiops_data/split/"
+                              "Adult_subsplit/**/Adult-split-0*.txt";
 
-	/* default size of buffer passed to driver */
-	int nBufferSize = 512 * 1024;
+  /* default size of buffer passed to driver */
+  int nBufferSize = 512 * 1024;
 
-	/* error indicator in case of error */
-	int test_status = launch_test(inputFilename, nBufferSize);
-    ASSERT_EQ(test_status, kSuccess);
+  /* error indicator in case of error */
+  int test_status = launch_test(inputFilename, nBufferSize);
+  ASSERT_EQ(test_status, kSuccess);
 }
 
 int launch_test(const char *inputFilename, int nBufferSize) {
@@ -459,7 +460,8 @@ int compareFiles(std::string local_file_path, std::string s3_uri) {
                             std::istreambuf_iterator<char>());
 
   // Créer un client S3
-  Aws::S3::S3Client* s3_client = (Aws::S3::S3Client*)test_getClient();
+  Aws::S3::S3Client *s3_client =
+      reinterpret_cast<Aws::S3::S3Client *>(test_getClient());
 
   // Télécharger l'objet S3
   char const *prefix = "s3://";
