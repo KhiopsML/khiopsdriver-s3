@@ -1,8 +1,14 @@
 #include <gtest/gtest.h>
 
 #include "s3plugin.h"
+#include "s3plugin_internal.h"
 
+#include <fstream>
 #include <sstream>
+
+#include <aws/core/Aws.h>
+#include <aws/s3/S3Client.h>
+#include <aws/s3/model/GetObjectRequest.h>
 
 #include <boost/uuid/uuid.hpp>            // uuid class
 #include <boost/uuid/uuid_generators.hpp> // generators
@@ -16,8 +22,11 @@ int copyFile(const char *file_name_input, const char *file_name_output,
              int nBufferSize);
 int copyFileWithFseek(const char *file_name_input, const char *file_name_output,
                       int nBufferSize);
+int copyFileWithAppend(const char *file_name_input,
+                       const char *file_name_output, int nBufferSize);
 int removeFile(const char *filename);
 int compareSize(const char *file_name_output, long long int filesize);
+int compareFiles(std::string local_file_path, std::string s3_uri);
 
 constexpr int kSuccess{1};
 constexpr int kFailure{0};
@@ -60,7 +69,6 @@ TEST(GCSDriverTest, End2EndTest_SingleFile_512B_OK) {
   ASSERT_EQ(test_status, kSuccess);
 }
 
-#if 0
 TEST(GCSDriverTest, End2EndTest_MultipartBQFile_512KB_OK)
 {
 	const char* inputFilename = "s3://diod-data-di-jupyterhub/khiops_data/bq_export/Adult/Adult-split-00000000000*.txt";
@@ -108,7 +116,6 @@ TEST(GCSDriverTest, End2EndTest_MultipartSubsplitFile_512KB_OK)
 	int test_status = launch_test(inputFilename, nBufferSize);
     ASSERT_EQ(test_status, kSuccess);
 }
-#endif
 
 int launch_test(const char *inputFilename, int nBufferSize) {
   int test_status = kSuccess;
@@ -175,24 +182,8 @@ int test(const char *file_name_input, const char *file_name_output,
 
   int copy_status = kSuccess;
 
-  // Test copying files
-  printf("Copy %s to %s\n", file_name_input, file_name_output);
-  copy_status = copyFile(file_name_input, file_name_output, nBufferSize);
-  if (copy_status == kSuccess) {
-    compareSize(file_name_output, filesize);
-    // removeFile(file_name_output);
-  }
-
-  // Test copying files with fseek
-  printf("Copy with fseek %s to %s ...\n", file_name_input, file_name_output);
-  copy_status =
-      copyFileWithFseek(file_name_input, file_name_output, nBufferSize);
-  if (copy_status == kSuccess) {
-    compareSize(file_name_output, filesize);
-    removeFile(file_name_output);
-  }
-
-  // Copy to local
+  // Copy to local, copied file will be used to verify results of copy
+  // operations
   if (copy_status == kSuccess) {
     printf("Copy to local %s to %s ...\n", file_name_input, file_name_local);
     copy_status = driver_copyToLocal(file_name_input, file_name_local);
@@ -200,6 +191,60 @@ int test(const char *file_name_input, const char *file_name_output,
       printf("Error while copying : %s\n", driver_getlasterror());
     else
       printf("copy %s to local is done\n", file_name_input);
+  }
+
+  // Test copying files
+  if (copy_status == kSuccess) {
+    printf("Copy %s to %s\n", file_name_input, file_name_output);
+    copy_status = copyFile(file_name_input, file_name_output, nBufferSize);
+
+    if (copy_status == kSuccess) {
+      copy_status = compareSize(file_name_output, filesize);
+      if (copy_status != kSuccess)
+        printf("File sizes are different!\n");
+      else
+        copy_status = compareFiles(file_name_local, file_name_output);
+      if (copy_status != kSuccess)
+        printf("File contents are different!\n");
+    }
+    removeFile(file_name_output);
+  }
+
+  // Test copying files with fseek
+  if (copy_status == kSuccess) {
+    printf("Copy with fseek %s to %s ...\n", file_name_input, file_name_output);
+    copy_status =
+        copyFileWithFseek(file_name_input, file_name_output, nBufferSize);
+
+    if (copy_status == kSuccess) {
+      copy_status = compareSize(file_name_output, filesize);
+      if (copy_status != kSuccess)
+        printf("File sizes are different!\n");
+      else
+        copy_status = compareFiles(file_name_local, file_name_output);
+      if (copy_status != kSuccess)
+        printf("File contents are different!\n");
+    }
+    removeFile(file_name_output);
+  }
+
+  // Test copying files with append
+  if (copy_status == kSuccess) {
+    printf("Copy with append %s to %s ...\n", file_name_input,
+           file_name_output);
+    copy_status =
+        copyFileWithAppend(file_name_input, file_name_output, nBufferSize);
+
+    if (copy_status == kSuccess) {
+      copy_status = compareSize(file_name_output, filesize);
+      if (copy_status != kSuccess)
+        printf("File sizes are different!\n");
+      else
+        copy_status = compareFiles(file_name_local, file_name_output);
+      if (copy_status != kSuccess)
+        printf("File contents are different!\n");
+    }
+    removeFile(file_name_output);
   }
 
   // Copy from local
@@ -317,6 +362,64 @@ int copyFileWithFseek(const char *file_name_input, const char *file_name_output,
   return copy_status;
 }
 
+// Copy file_name_input to file_name_output by steps of 1Kb
+int copyFileWithAppend(const char *file_name_input,
+                       const char *file_name_output, int nBufferSize) {
+  // Make sure output file doesn't exist
+  driver_remove(file_name_output);
+
+  // Opens for read
+  void *fileinput = driver_fopen(file_name_input, 'r');
+  if (fileinput == NULL) {
+    printf("error : %s : %s\n", file_name_input, driver_getlasterror());
+    return kFailure;
+  }
+
+  int copy_status = kSuccess;
+
+  if (copy_status == kSuccess) {
+    // Reads the file by steps of nBufferSize and writes to the output file at
+    // each step
+    char *buffer = new char[nBufferSize + 1]();
+    long long int sizeRead = nBufferSize;
+    long long int sizeWrite;
+    driver_fseek(fileinput, 0, SEEK_SET);
+    while (sizeRead == nBufferSize && copy_status == kSuccess) {
+      sizeRead = driver_fread(buffer, sizeof(char), nBufferSize, fileinput);
+      if (sizeRead == -1) {
+        copy_status = kFailure;
+        printf("error while reading %s : %s\n", file_name_input,
+               driver_getlasterror());
+      } else {
+        void *fileoutput = driver_fopen(file_name_output, 'a');
+        if (fileoutput == NULL) {
+          printf("error : %s : %s\n", file_name_input, driver_getlasterror());
+          copy_status = kFailure;
+        }
+
+        sizeWrite =
+            driver_fwrite(buffer, sizeof(char), (size_t)sizeRead, fileoutput);
+        if (sizeWrite == -1) {
+          copy_status = kFailure;
+          printf("error while writing %s : %s\n", file_name_output,
+                 driver_getlasterror());
+        }
+
+        int closeStatus = driver_fclose(fileoutput);
+        if (closeStatus != 0) {
+          copy_status = kFailure;
+          printf("error while closing %s : %s\n", file_name_output,
+                 driver_getlasterror());
+        }
+      }
+    }
+
+    delete[] (buffer);
+  }
+  driver_fclose(fileinput);
+  return copy_status;
+}
+
 int removeFile(const char *filename) {
   int remove_status = driver_remove(filename);
   if (remove_status != kSuccess)
@@ -343,4 +446,44 @@ int compareSize(const char *file_name_output, long long int filesize) {
     compare_status = kFailure;
   }
   return compare_status;
+}
+
+int compareFiles(std::string local_file_path, std::string s3_uri) {
+  // Lire le fichier local
+  std::ifstream local_file(local_file_path, std::ios::binary);
+  if (!local_file) {
+    std::cerr << "Failure reading local file" << std::endl;
+    return false;
+  }
+  std::string local_content((std::istreambuf_iterator<char>(local_file)),
+                            std::istreambuf_iterator<char>());
+
+  // Créer un client S3
+  Aws::S3::S3Client* s3_client = (Aws::S3::S3Client*)test_getClient();
+
+  // Télécharger l'objet S3
+  char const *prefix = "s3://";
+  const size_t prefix_size{std::strlen(prefix)};
+  const size_t pos = s3_uri.find('/', prefix_size);
+  std::string bucket_name = s3_uri.substr(prefix_size, pos - prefix_size);
+  std::string object_name = s3_uri.substr(pos + 1);
+  std::string gcs_content;
+  // Télécharger l'objet S3
+  Aws::S3::Model::GetObjectRequest object_request;
+  object_request.SetBucket(bucket_name.c_str());
+  object_request.SetKey(object_name.c_str());
+  auto get_object_outcome = s3_client->GetObject(object_request);
+  if (!get_object_outcome.IsSuccess()) {
+    std::cerr << "Failure retrieving object from S3" << std::endl;
+    return false;
+  }
+
+  // Lire le contenu de l'objet S3
+  std::stringstream s3_content;
+  s3_content << get_object_outcome.GetResult().GetBody().rdbuf();
+
+  // Comparer les contenus
+  auto result = local_content == s3_content.str() ? kSuccess : kFailure;
+
+  return result;
 }

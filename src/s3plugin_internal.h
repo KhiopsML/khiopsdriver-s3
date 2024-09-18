@@ -119,6 +119,7 @@ extern "C"
 
 	VISIBLE void* test_getActiveWriterHandles();
 
+	VISIBLE void* test_getClient();
 #ifdef __cplusplus
 } /* extern "C" */
 #endif /* __cplusplus */

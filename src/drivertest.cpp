@@ -18,6 +18,15 @@
 #include <windows.h>
 #endif
 
+#include <fstream>
+#include <iostream>
+#include <sstream>
+#include <string>
+
+#include <aws/core/Aws.h>
+#include <aws/s3/S3Client.h>
+#include <aws/s3/model/GetObjectRequest.h>
+
 /* API functions definition, that must be defined in the library */
 const char *(*ptr_driver_getDriverName)();
 const char *(*ptr_driver_getVersion)();
@@ -65,8 +74,11 @@ void test(const char *file_name_input, const char *file_name_output,
 void copyFile(const char *file_name_input, const char *file_name_output);
 void copyFileWithFseek(const char *file_name_input,
                        const char *file_name_output);
+void copyFileWithAppend(const char *file_name_input,
+                        const char *file_name_output);
 void removeFile(const char *filename);
 void compareSize(const char *file_name_output, long long int filesize);
+void compareFiles(std::string local_file_path, std::string s3_uri);
 
 /* error indicator in case of error */
 int global_error = 0;
@@ -257,22 +269,6 @@ void test(const char *file_name_input, const char *file_name_output,
   }
   // Opens for write if the driver is not read-only
   else {
-    // Test copying files
-    printf("Copy %s to %s\n", file_name_input, file_name_output);
-    copyFile(file_name_input, file_name_output);
-    if (!global_error) {
-      compareSize(file_name_output, filesize);
-      removeFile(file_name_output);
-    }
-
-    // Test copying files with fseek
-    printf("Copy with fseek %s to %s ...\n", file_name_input, file_name_output);
-    copyFileWithFseek(file_name_input, file_name_output);
-    if (!global_error) {
-      compareSize(file_name_output, filesize);
-      removeFile(file_name_output);
-    }
-
     // Copy to local if this optional function is available in the librairy
     if (!global_error && ptr_driver_copyToLocal != NULL) {
       printf("Copy to local %s to %s ...\n", file_name_input, file_name_local);
@@ -282,6 +278,37 @@ void test(const char *file_name_input, const char *file_name_output,
         printf("Error while copying : %s\n", ptr_driver_getlasterror());
       else
         printf("copy %s to local is done\n", file_name_input);
+    }
+
+    // Test copying files
+    printf("Copy %s to %s\n", file_name_input, file_name_output);
+    copyFile(file_name_input, file_name_output);
+    if (!global_error) {
+      compareSize(file_name_output, filesize);
+      if (!global_error && ptr_driver_copyToLocal != NULL)
+        compareFiles(file_name_local, file_name_output);
+      removeFile(file_name_output);
+    }
+
+    // Test copying files with fseek
+    printf("Copy with fseek %s to %s ...\n", file_name_input, file_name_output);
+    copyFileWithFseek(file_name_input, file_name_output);
+    if (!global_error) {
+      compareSize(file_name_output, filesize);
+      if (!global_error && ptr_driver_copyToLocal != NULL)
+        compareFiles(file_name_local, file_name_output);
+      removeFile(file_name_output);
+    }
+
+    // Test copying files with append
+    printf("Copy with append %s to %s ...\n", file_name_input,
+           file_name_output);
+    copyFileWithAppend(file_name_input, file_name_output);
+    if (!global_error) {
+      compareSize(file_name_output, filesize);
+      if (!global_error && ptr_driver_copyToLocal != NULL)
+        compareFiles(file_name_local, file_name_output);
+      removeFile(file_name_output);
     }
 
     // Copy from local if this optional function is available in the librairy
@@ -434,6 +461,57 @@ void copyFileWithFseek(const char *file_name_input,
   ptr_driver_fclose(fileinput);
 }
 
+// Copy file_name_input to file_name_output by steps of 1Kb by using append mode
+void copyFileWithAppend(const char *file_name_input,
+                        const char *file_name_output) {
+  // Make sure output file doesn't exist
+  ptr_driver_remove(file_name_output);
+
+  // Opens for read
+  void *fileinput = ptr_driver_fopen(file_name_input, 'r');
+  if (fileinput == NULL) {
+    printf("error : %s : %s\n", file_name_input, ptr_driver_getlasterror());
+    global_error = 1;
+    return;
+  }
+
+  if (!global_error) {
+    // Reads the file by steps of nBufferSize and writes to the output file at
+    // each step
+    char *buffer = new char[nBufferSize];
+    long long int sizeRead = nBufferSize;
+    long long int sizeWrite;
+    ptr_driver_fseek(fileinput, 0, SEEK_SET);
+    while (sizeRead == nBufferSize && !global_error) {
+      sizeRead = ptr_driver_fread(buffer, sizeof(char), nBufferSize, fileinput);
+      if (sizeRead == -1) {
+        global_error = 1;
+        printf("error while reading %s : %s\n", file_name_input,
+               ptr_driver_getlasterror());
+      } else {
+        void *fileoutput = ptr_driver_fopen(file_name_output, 'a');
+        if (fileoutput == NULL) {
+          printf("error : %s : %s\n", file_name_input,
+                 ptr_driver_getlasterror());
+          global_error = 1;
+        }
+
+        sizeWrite = ptr_driver_fwrite(buffer, sizeof(char), (size_t)sizeRead,
+                                      fileoutput);
+        if (sizeWrite == -1) {
+          global_error = 1;
+          printf("error while writing %s : %s\n", file_name_output,
+                 ptr_driver_getlasterror());
+        }
+
+        ptr_driver_fclose(fileoutput);
+      }
+    }
+    delete[] (buffer);
+  }
+  ptr_driver_fclose(fileinput);
+}
+
 void removeFile(const char *filename) {
   global_error = ptr_driver_remove(filename) == 0;
   if (global_error)
@@ -455,6 +533,48 @@ void compareSize(const char *file_name_output, long long int filesize) {
     printf("%s exists\n", file_name_output);
   } else {
     printf("something's wrong : %s is missing\n", file_name_output);
+    global_error = 1;
+  }
+}
+
+void compareFiles(std::string local_file_path, std::string gcs_uri) {
+  // Lire le fichier local
+  std::ifstream local_file(local_file_path, std::ios::binary);
+  if (!local_file) {
+    std::cerr << "Failure reading local file" << std::endl;
+    global_error = 1;
+  }
+  std::string local_content((std::istreambuf_iterator<char>(local_file)),
+                            std::istreambuf_iterator<char>());
+
+  // Créer un client S3
+  Aws::S3::S3Client s3_client;
+
+  // Télécharger l'objet GCS
+  char const *prefix = "s3://";
+  const size_t prefix_size{std::strlen(prefix)};
+  const size_t pos = gcs_uri.find('/', prefix_size);
+  std::string bucket_name = gcs_uri.substr(prefix_size, pos - prefix_size);
+  std::string object_name = gcs_uri.substr(pos + 1);
+  std::string gcs_content;
+  // Télécharger l'objet S3
+  Aws::S3::Model::GetObjectRequest object_request;
+  object_request.SetBucket(bucket_name.c_str());
+  object_request.SetKey(object_name.c_str());
+  auto get_object_outcome = s3_client.GetObject(object_request);
+  if (!get_object_outcome.IsSuccess()) {
+    std::cerr << "Failure retrieving object from S3" << std::endl;
+    global_error = 1;
+    return;
+  }
+
+  // Lire le contenu de l'objet S3
+  std::stringstream s3_content;
+  s3_content << get_object_outcome.GetResult().GetBody().rdbuf();
+
+  // Comparer les contenus
+  if (local_content != s3_content.str()) {
+    std::cerr << "Files are different" << std::endl;
     global_error = 1;
   }
 }
