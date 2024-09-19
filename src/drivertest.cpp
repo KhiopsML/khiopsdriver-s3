@@ -23,10 +23,6 @@
 #include <sstream>
 #include <string>
 
-#include <aws/core/Aws.h>
-#include <aws/s3/S3Client.h>
-#include <aws/s3/model/GetObjectRequest.h>
-
 /* API functions definition, that must be defined in the library */
 const char *(*ptr_driver_getDriverName)();
 const char *(*ptr_driver_getVersion)();
@@ -62,6 +58,8 @@ int (*ptr_driver_copyToLocal)(const char *sourcefilename,
                               const char *destfilename);
 int (*ptr_driver_copyFromLocal)(const char *sourcefilename,
                                 const char *destfilename);
+void *(*ptr_test_getClient)();
+bool (*ptr_test_compareFiles)(const char* local_file_path, const char* s3_uri);
 
 /* functions prototype */
 void usage();
@@ -165,6 +163,10 @@ int main(int argc, char *argv[]) {
         get_shared_library_function(library_handle, "driver_copyToLocal", 0);
     *(void **)(&ptr_driver_copyFromLocal) =
         get_shared_library_function(library_handle, "driver_copyFromLocal", 0);
+    *(void **)(&ptr_test_getClient) =
+        get_shared_library_function(library_handle, "test_getClient", 1);
+    *(void **)(&ptr_test_compareFiles) =
+        get_shared_library_function(library_handle, "test_compareFiles", 1);
   }
 
   if (!global_error) {
@@ -279,7 +281,7 @@ void test(const char *file_name_input, const char *file_name_output,
       else
         printf("copy %s to local is done\n", file_name_input);
     }
-
+#if 1
     // Test copying files
     printf("Copy %s to %s\n", file_name_input, file_name_output);
     copyFile(file_name_input, file_name_output);
@@ -299,7 +301,7 @@ void test(const char *file_name_input, const char *file_name_output,
         compareFiles(file_name_local, file_name_output);
       removeFile(file_name_output);
     }
-
+#endif
     // Test copying files with append
     printf("Copy with append %s to %s ...\n", file_name_input,
            file_name_output);
@@ -513,9 +515,10 @@ void copyFileWithAppend(const char *file_name_input,
 }
 
 void removeFile(const char *filename) {
-  global_error = ptr_driver_remove(filename) == 0;
-  if (global_error)
+  int remove_error = ptr_driver_remove(filename) == 0;
+  if (remove_error)
     printf("Error while removing : %s\n", ptr_driver_getlasterror());
+  global_error |= remove_error;
   if (ptr_driver_fileExists(filename)) {
     printf("%s should be removed !\n", filename);
     global_error = 1;
@@ -537,7 +540,15 @@ void compareSize(const char *file_name_output, long long int filesize) {
   }
 }
 
-void compareFiles(std::string local_file_path, std::string gcs_uri) {
+void compareFiles(std::string local_file_path, std::string s3_uri) {
+  if (!ptr_test_compareFiles(local_file_path.c_str(), s3_uri.c_str())) {
+    std::cerr << "Files are different" << std::endl;
+    global_error = 1;
+  }
+}
+
+#if 0
+void compareFiles(std::string local_file_path, std::string s3_uri) {
   // Lire le fichier local
   std::ifstream local_file(local_file_path, std::ios::binary);
   if (!local_file) {
@@ -548,33 +559,39 @@ void compareFiles(std::string local_file_path, std::string gcs_uri) {
                             std::istreambuf_iterator<char>());
 
   // Créer un client S3
-  Aws::S3::S3Client s3_client;
+  Aws::S3::S3Client* s3_client = (Aws::S3::S3Client*)ptr_test_getClient();
 
-  // Télécharger l'objet GCS
+  // Télécharger l'objet S3
   char const *prefix = "s3://";
   const size_t prefix_size{std::strlen(prefix)};
-  const size_t pos = gcs_uri.find('/', prefix_size);
-  std::string bucket_name = gcs_uri.substr(prefix_size, pos - prefix_size);
-  std::string object_name = gcs_uri.substr(pos + 1);
-  std::string gcs_content;
+  const size_t pos = s3_uri.find('/', prefix_size);
+  std::string bucket_name = s3_uri.substr(prefix_size, pos - prefix_size);
+  std::string object_name = s3_uri.substr(pos + 1);
+
   // Télécharger l'objet S3
   Aws::S3::Model::GetObjectRequest object_request;
   object_request.SetBucket(bucket_name.c_str());
   object_request.SetKey(object_name.c_str());
-  auto get_object_outcome = s3_client.GetObject(object_request);
+  auto get_object_outcome = s3_client->GetObject(object_request);
   if (!get_object_outcome.IsSuccess()) {
     std::cerr << "Failure retrieving object from S3" << std::endl;
     global_error = 1;
     return;
   }
 
+std::cerr << "Read OK, compare data" << std::endl;
+
   // Lire le contenu de l'objet S3
   std::stringstream s3_content;
   s3_content << get_object_outcome.GetResult().GetBody().rdbuf();
+
+std::cerr << "Result downloaded" << std::endl;
 
   // Comparer les contenus
   if (local_content != s3_content.str()) {
     std::cerr << "Files are different" << std::endl;
     global_error = 1;
   }
+  return;
 }
+#endif

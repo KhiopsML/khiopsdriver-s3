@@ -277,6 +277,23 @@ Aws::String MakeByteRange(int64_t start, int64_t end)
 	return range.str();
 }
 
+
+SizeOutcome DownloadFileRangeToVector(const Aws::String& bucket, const Aws::String& object_name, Aws::Vector<unsigned char>& contentVector,
+					std::int64_t start_range, std::int64_t end_range)
+{
+	// Note: AWS byte ranges are inclusive
+	auto request = MakeGetObjectRequest(bucket, object_name, MakeByteRange(start_range, end_range));
+	auto outcome = client->GetObject(request);
+	RETURN_OUTCOME_ON_ERROR(outcome);
+
+	Aws::IOStream& objectStream = outcome.GetResult().GetBody();
+	std::string objectData((std::istreambuf_iterator<char>(objectStream)), std::istreambuf_iterator<char>());
+
+	// Convert string to vector<char>
+	contentVector.assign(objectData.begin(), objectData.end());
+	return objectData.size();
+}
+
 SizeOutcome DownloadFileRangeToBuffer(const Aws::String& bucket, const Aws::String& object_name, unsigned char* buffer,
 				      std::int64_t start_range, std::int64_t end_range)
 {
@@ -734,6 +751,8 @@ int driver_connect()
 		return false;
 	}
 
+	//options.loggingOptions.logLevel = Aws::Utils::Logging::LogLevel::Debug;
+
 	// Initialisation du SDK AWS
 	Aws::InitAPI(options);
 
@@ -1184,8 +1203,9 @@ UploadOutcome InitiateAppend(Writer& writer, size_t source_bytes_to_copy)
 	int64_t start_range = 0;
 	while (source_bytes_to_copy > Writer::buff_min_)
 	{
-		const int64_t copy_count = static_cast<int64_t>(std::min(Writer::buff_max_, source_bytes_to_copy));
-
+		const size_t copy_count =
+		    source_bytes_to_copy > Writer::buff_max_ ? Writer::buff_max_ : source_bytes_to_copy;
+			
 		// peculiarity of AWS: the range for the copy request has an inclusive end,
 		// meaning that the bytes numbered start_range to end_range included are copied
 		const int64_t end_range = start_range + copy_count - 1;
@@ -1199,11 +1219,16 @@ UploadOutcome InitiateAppend(Writer& writer, size_t source_bytes_to_copy)
 	// copy in the internal buffer what remains from the source.
 	if (source_bytes_to_copy > 0)
 	{
+		writer.buffer_.reserve(source_bytes_to_copy);
 		// reminder: byte ranges are inclusive
-		auto outcome = DownloadFileRangeToBuffer(
-		    multipartupload_data.GetBucket(), multipartupload_data.GetKey(), writer.buffer_.data(), start_range,
-		    start_range + static_cast<int64_t>(source_bytes_to_copy) - 1);
+		auto outcome = DownloadFileRangeToVector(multipartupload_data.GetBucket(),
+							 multipartupload_data.GetKey(), writer.buffer_,
+							 start_range, start_range + source_bytes_to_copy - 1);
 		PASS_OUTCOME_ON_ERROR(outcome);
+
+		tOffset actual_read = outcome.GetResult();
+
+		spdlog::debug("copied = {}", actual_read);
 	}
 
 	return true;
@@ -1772,4 +1797,48 @@ int driver_copyFromLocal(const char* sSourceFilePathName, const char* sDestFileP
 	}
 
 	return true;
+}
+
+bool test_compareFiles(const char* local_file_path_str, const char* s3_uri_str) {
+  std::string local_file_path(local_file_path_str);
+  std::string s3_uri(s3_uri_str);
+
+  // Lire le fichier local
+  std::ifstream local_file(local_file_path, std::ios::binary);
+  if (!local_file) {
+    std::cerr << "Failure reading local file" << std::endl;
+    return false;
+  }
+  std::string local_content((std::istreambuf_iterator<char>(local_file)),
+                            std::istreambuf_iterator<char>());
+
+  // Créer un client S3
+  Aws::S3::S3Client *s3_client =
+      reinterpret_cast<Aws::S3::S3Client *>(test_getClient());
+
+  // Télécharger l'objet S3
+  char const *prefix = "s3://";
+  const size_t prefix_size{std::strlen(prefix)};
+  const size_t pos = s3_uri.find('/', prefix_size);
+  std::string bucket_name = s3_uri.substr(prefix_size, pos - prefix_size);
+  std::string object_name = s3_uri.substr(pos + 1);
+
+  // Télécharger l'objet S3
+  Aws::S3::Model::GetObjectRequest object_request;
+  object_request.SetBucket(bucket_name.c_str());
+  object_request.SetKey(object_name.c_str());
+  auto get_object_outcome = s3_client->GetObject(object_request);
+  if (!get_object_outcome.IsSuccess()) {
+    std::cerr << "Failure retrieving object from S3" << std::endl;
+    return false;
+  }
+
+  // Lire le contenu de l'objet S3
+  std::stringstream s3_content;
+  s3_content << get_object_outcome.GetResult().GetBody().rdbuf();
+
+  // Comparer les contenus
+  auto result = local_content == s3_content.str() ? kSuccess : kFailure;
+
+  return result;
 }

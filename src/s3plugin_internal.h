@@ -120,6 +120,9 @@ extern "C"
 	VISIBLE void* test_getActiveWriterHandles();
 
 	VISIBLE void* test_getClient();
+
+	VISIBLE bool test_compareFiles(const char* local_file_path, const char* s3_uri);
+	
 #ifdef __cplusplus
 } /* extern "C" */
 #endif /* __cplusplus */

@@ -6,7 +6,7 @@
 #include <fstream>
 #include <sstream>
 
-#include <aws/core/Aws.h>
+//#include <aws/core/Aws.h>
 #include <aws/s3/S3Client.h>
 #include <aws/s3/model/GetObjectRequest.h>
 
@@ -469,7 +469,7 @@ int compareFiles(std::string local_file_path, std::string s3_uri) {
   const size_t pos = s3_uri.find('/', prefix_size);
   std::string bucket_name = s3_uri.substr(prefix_size, pos - prefix_size);
   std::string object_name = s3_uri.substr(pos + 1);
-  std::string gcs_content;
+
   // Télécharger l'objet S3
   Aws::S3::Model::GetObjectRequest object_request;
   object_request.SetBucket(bucket_name.c_str());
