@@ -1135,8 +1135,8 @@ SimpleOutcome<Writer*> RegisterWriter(Aws::String&& bucket, Aws::String&& object
 	return RegisterStream<Writer>(MakeWriterPtr, std::move(bucket), std::move(object));
 }
 
-#define KH_S3_REGISTER_STREAM(type, err_msg)                                                                           \
-	auto outcome = Register##type(std::move(names.bucket_), std::move(names.object_));                             \
+#define KH_S3_REGISTER_STREAM(type, bucket, object, err_msg)                                                           \
+	auto outcome = Register##type(std::move(bucket), std::move(object));                                           \
 	RETURN_ON_ERROR(outcome, err_msg, nullptr);                                                                    \
 	return outcome.GetResult();
 
@@ -1223,11 +1223,11 @@ void* driver_fopen(const char* filename, char mode)
 	{
 	case 'r':
 	{
-		KH_S3_REGISTER_STREAM(Reader, "Error while opening reader stream");
+		KH_S3_REGISTER_STREAM(Reader, names.bucket_, names.object_, "Error while opening reader stream");
 	}
 	case 'w':
 	{
-		KH_S3_REGISTER_STREAM(Writer, "Error while opening writer stream");
+		KH_S3_REGISTER_STREAM(Writer, names.bucket_, names.object_, "Error while opening writer stream");
 	}
 	case 'a':
 	{
@@ -1266,7 +1266,8 @@ void* driver_fopen(const char* filename, char mode)
 			{
 				// source file not found, fallback to simple write mode
 				spdlog::debug("No source file to append to, falling back to simple write.");
-				KH_S3_REGISTER_STREAM(Writer, "Error while opening writer stream");
+				KH_S3_REGISTER_STREAM(Writer, names.bucket_, target,
+						      "Error while opening writer stream");
 			}
 			else
 			{
