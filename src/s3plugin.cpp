@@ -1184,8 +1184,7 @@ UploadOutcome InitiateAppend(Writer& writer, size_t source_bytes_to_copy)
 	int64_t start_range = 0;
 	while (source_bytes_to_copy > Writer::buff_min_)
 	{
-		const size_t copy_count =
-		    source_bytes_to_copy > Writer::buff_max_ ? Writer::buff_max_ : source_bytes_to_copy;
+		const int64_t copy_count = static_cast<int64_t>(std::min(Writer::buff_max_, source_bytes_to_copy));
 
 		// peculiarity of AWS: the range for the copy request has an inclusive end,
 		// meaning that the bytes numbered start_range to end_range included are copied
@@ -1193,7 +1192,7 @@ UploadOutcome InitiateAppend(Writer& writer, size_t source_bytes_to_copy)
 		auto outcome = UploadPartCopy(writer, MakeByteRange(start_range, end_range));
 		PASS_OUTCOME_ON_ERROR(outcome);
 
-		source_bytes_to_copy -= copy_count;
+		source_bytes_to_copy -= static_cast<size_t>(copy_count);
 		start_range += copy_count;
 	}
 
@@ -1201,9 +1200,9 @@ UploadOutcome InitiateAppend(Writer& writer, size_t source_bytes_to_copy)
 	if (source_bytes_to_copy > 0)
 	{
 		// reminder: byte ranges are inclusive
-		auto outcome = DownloadFileRangeToBuffer(multipartupload_data.GetBucket(),
-							 multipartupload_data.GetKey(), writer.buffer_.data(),
-							 start_range, start_range + source_bytes_to_copy - 1);
+		auto outcome = DownloadFileRangeToBuffer(
+		    multipartupload_data.GetBucket(), multipartupload_data.GetKey(), writer.buffer_.data(), start_range,
+		    start_range + static_cast<int64_t>(source_bytes_to_copy) - 1);
 		PASS_OUTCOME_ON_ERROR(outcome);
 	}
 
