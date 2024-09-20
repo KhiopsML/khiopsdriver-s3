@@ -36,7 +36,10 @@
 #include <memory>
 #include <sstream>
 #include <string>
+#include <aws/core/utils/logging/DefaultLogSystem.h>
+#include <aws/core/utils/logging/ConsoleLogSystem.h>
 
+using namespace Aws::Utils::Logging;
 using namespace s3plugin;
 
 using S3Object = Aws::S3::Model::Object;
@@ -746,8 +749,14 @@ int driver_connect()
 		return false;
 	}
 
-	//options.loggingOptions.logLevel = Aws::Utils::Logging::LogLevel::Debug;
+	options.loggingOptions.logLevel = Aws::Utils::Logging::LogLevel::Debug;
+	options.loggingOptions.logger_create_fn = [] { return std::make_shared<ConsoleLogSystem>(LogLevel::Debug); };
 
+	/*
+	Aws::Utils::Logging::InitializeAWSLogging(
+		Aws::MakeShared<Aws::Utils::Logging::DefaultLogSystem>(
+			"RunUnitTests", Aws::Utils::Logging::LogLevel::Trace, "aws_sdk_"));
+		*/	
 	// Initialisation du SDK AWS
 	Aws::InitAPI(options);
 
@@ -757,7 +766,7 @@ int driver_connect()
 	clientConfig.verifySSL = !GetEnvironmentVariableOrDefault("SSL_NO_VERIFY", "false").compare("true");
 	if (s3endpoint != "")
 	{
-		clientConfig.endpointOverride = s3endpoint;
+		clientConfig.endpointOverride = std::move(s3endpoint);
 	}
 	if (s3region != "")
 	{
@@ -819,7 +828,8 @@ int driver_disconnect()
 	active_reader_handles.clear();
 
 	client.reset();
-
+	
+	//Aws::Utils::Logging::ShutdownAWSLogging();
 	ShutdownAPI(options);
 
 	bIsConnected = kFalse;
