@@ -752,7 +752,8 @@ int driver_connect()
 	Aws::InitAPI(options);
 
 	Aws::Client::ClientConfiguration clientConfig;
-	clientConfig.allowSystemProxy = true;
+	clientConfig.allowSystemProxy = getenv("http_proxy") != NULL || getenv("https_proxy") != NULL ||
+		getenv("HTTP_PROXY") != NULL || getenv("HTTPS_PROXY") != NULL || getenv("S3_ALLOW_SYSTEM_PROXY");
 	clientConfig.verifySSL = !GetEnvironmentVariableOrDefault("SSL_NO_VERIFY", "false").compare("true");
 	if (s3endpoint != "")
 	{
