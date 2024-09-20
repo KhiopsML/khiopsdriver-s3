@@ -1684,22 +1684,15 @@ int driver_copyToLocal(const char* sSourceFilePathName, const char* sDestFilePat
 
 	auto read_and_write = [](const Reader& from, size_t part, std::ofstream& to_file) -> bool
 	{
+		// file metadata
+		const Aws::String& file_name = from.filenames_[part];
+		const long long header_size = from.common_header_length_;
+
 		// limit download to a few MBs at a time.
 		constexpr long long dl_limit{10 * 1024 * 1024};
 
-		auto size_from_cumulative_sizes = [](const Aws::Vector<long long>& cumul, size_t part) -> long long
-		{
-			if (0 == part)
-			{
-				return cumul[0];
-			}
-			return cumul[part] - cumul[part - 1];
-		};
-
-		// file metadata
-		const Aws::String& file_name = from.filenames_[part];
-		const long long file_size = size_from_cumulative_sizes(from.cumulative_sizes_, part);
-		const long long header_size = from.common_header_length_;
+		const long long file_size = part == 0 ? 
+			from.cumulative_sizes_[0] : header_size + from.cumulative_sizes_[part]-from.cumulative_sizes_[part-1];
 
 		// download range limits
 		const long long end_limit = file_size - 1;
