@@ -24,7 +24,7 @@ find_package(fmt CONFIG REQUIRED)
 find_package(ZLIB REQUIRED)
 find_package(
   AWSSDK CONFIG
-  COMPONENTS core s3
+  COMPONENTS s3
   REQUIRED)
 find_package(spdlog CONFIG REQUIRED)
 
