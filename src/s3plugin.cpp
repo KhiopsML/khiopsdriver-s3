@@ -94,11 +94,6 @@ void* test_getActiveWriterHandles()
 	return &active_writer_handles;
 }
 
-void* test_getClient()
-{
-	return client.get();
-}
-
 #define KH_S3_NOT_CONNECTED(err_val)                                                                                   \
 	if (kFalse == bIsConnected)                                                                                    \
 	{                                                                                                              \
@@ -1591,7 +1586,7 @@ long long int driver_fwrite(const void* ptr, size_t size, size_t count, void* st
 	return to_write;
 }
 
-int driver_fflush(void* stream)
+int driver_fflush(void*)
 {
 	KH_S3_NOT_CONNECTED(kBadSize);
 
@@ -1685,7 +1680,6 @@ int driver_copyToLocal(const char* sSourceFilePathName, const char* sDestFilePat
 	auto read_and_write = [](const Reader& from, size_t part, std::ofstream& to_file) -> bool
 	{
 		// file metadata
-		const Aws::String& file_name = from.filenames_[part];
 		const long long header_size = from.common_header_length_;
 
 		// limit download to a few MBs at a time.
@@ -1805,10 +1799,6 @@ bool test_compareFiles(const char* local_file_path_str, const char* s3_uri_str) 
   std::string local_content((std::istreambuf_iterator<char>(local_file)),
                             std::istreambuf_iterator<char>());
 
-  // Créer un client S3
-  Aws::S3::S3Client *s3_client =
-      reinterpret_cast<Aws::S3::S3Client *>(test_getClient());
-
   // Télécharger l'objet S3
   char const *prefix = "s3://";
   const size_t prefix_size{std::strlen(prefix)};
@@ -1820,7 +1810,7 @@ bool test_compareFiles(const char* local_file_path_str, const char* s3_uri_str) 
   Aws::S3::Model::GetObjectRequest object_request;
   object_request.SetBucket(bucket_name.c_str());
   object_request.SetKey(object_name.c_str());
-  auto get_object_outcome = s3_client->GetObject(object_request);
+  auto get_object_outcome = client->GetObject(object_request);
   if (!get_object_outcome.IsSuccess()) {
     std::cerr << "Failure retrieving object from S3" << std::endl;
     return false;

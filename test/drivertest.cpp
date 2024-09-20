@@ -450,42 +450,9 @@ int compareSize(const char *file_name_output, long long int filesize) {
 }
 
 int compareFiles(std::string local_file_path, std::string s3_uri) {
-  // Lire le fichier local
-  std::ifstream local_file(local_file_path, std::ios::binary);
-  if (!local_file) {
-    std::cerr << "Failure reading local file" << std::endl;
+  if (!test_compareFiles(local_file_path.c_str(), s3_uri.c_str())) {
+    std::cerr << "Files are different" << std::endl;
     return false;
   }
-  std::string local_content((std::istreambuf_iterator<char>(local_file)),
-                            std::istreambuf_iterator<char>());
-
-  // Créer un client S3
-  Aws::S3::S3Client *s3_client =
-      reinterpret_cast<Aws::S3::S3Client *>(test_getClient());
-
-  // Télécharger l'objet S3
-  char const *prefix = "s3://";
-  const size_t prefix_size{std::strlen(prefix)};
-  const size_t pos = s3_uri.find('/', prefix_size);
-  std::string bucket_name = s3_uri.substr(prefix_size, pos - prefix_size);
-  std::string object_name = s3_uri.substr(pos + 1);
-
-  // Télécharger l'objet S3
-  Aws::S3::Model::GetObjectRequest object_request;
-  object_request.SetBucket(bucket_name.c_str());
-  object_request.SetKey(object_name.c_str());
-  auto get_object_outcome = s3_client->GetObject(object_request);
-  if (!get_object_outcome.IsSuccess()) {
-    std::cerr << "Failure retrieving object from S3" << std::endl;
-    return false;
-  }
-
-  // Lire le contenu de l'objet S3
-  std::stringstream s3_content;
-  s3_content << get_object_outcome.GetResult().GetBody().rdbuf();
-
-  // Comparer les contenus
-  auto result = local_content == s3_content.str() ? kSuccess : kFailure;
-
-  return result;
+  return true;
 }

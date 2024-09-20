@@ -58,7 +58,6 @@ int (*ptr_driver_copyToLocal)(const char *sourcefilename,
                               const char *destfilename);
 int (*ptr_driver_copyFromLocal)(const char *sourcefilename,
                                 const char *destfilename);
-void *(*ptr_test_getClient)();
 bool (*ptr_test_compareFiles)(const char* local_file_path, const char* s3_uri);
 
 /* functions prototype */
@@ -163,8 +162,6 @@ int main(int argc, char *argv[]) {
         get_shared_library_function(library_handle, "driver_copyToLocal", 0);
     *(void **)(&ptr_driver_copyFromLocal) =
         get_shared_library_function(library_handle, "driver_copyFromLocal", 0);
-    *(void **)(&ptr_test_getClient) =
-        get_shared_library_function(library_handle, "test_getClient", 1);
     *(void **)(&ptr_test_compareFiles) =
         get_shared_library_function(library_handle, "test_compareFiles", 1);
   }
@@ -546,52 +543,3 @@ void compareFiles(std::string local_file_path, std::string s3_uri) {
     global_error = 1;
   }
 }
-
-#if 0
-void compareFiles(std::string local_file_path, std::string s3_uri) {
-  // Lire le fichier local
-  std::ifstream local_file(local_file_path, std::ios::binary);
-  if (!local_file) {
-    std::cerr << "Failure reading local file" << std::endl;
-    global_error = 1;
-  }
-  std::string local_content((std::istreambuf_iterator<char>(local_file)),
-                            std::istreambuf_iterator<char>());
-
-  // Créer un client S3
-  Aws::S3::S3Client* s3_client = (Aws::S3::S3Client*)ptr_test_getClient();
-
-  // Télécharger l'objet S3
-  char const *prefix = "s3://";
-  const size_t prefix_size{std::strlen(prefix)};
-  const size_t pos = s3_uri.find('/', prefix_size);
-  std::string bucket_name = s3_uri.substr(prefix_size, pos - prefix_size);
-  std::string object_name = s3_uri.substr(pos + 1);
-
-  // Télécharger l'objet S3
-  Aws::S3::Model::GetObjectRequest object_request;
-  object_request.SetBucket(bucket_name.c_str());
-  object_request.SetKey(object_name.c_str());
-  auto get_object_outcome = s3_client->GetObject(object_request);
-  if (!get_object_outcome.IsSuccess()) {
-    std::cerr << "Failure retrieving object from S3" << std::endl;
-    global_error = 1;
-    return;
-  }
-
-std::cerr << "Read OK, compare data" << std::endl;
-
-  // Lire le contenu de l'objet S3
-  std::stringstream s3_content;
-  s3_content << get_object_outcome.GetResult().GetBody().rdbuf();
-
-std::cerr << "Result downloaded" << std::endl;
-
-  // Comparer les contenus
-  if (local_content != s3_content.str()) {
-    std::cerr << "Files are different" << std::endl;
-    global_error = 1;
-  }
-  return;
-}
-#endif
