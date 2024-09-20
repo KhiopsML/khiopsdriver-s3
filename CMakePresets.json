@@ -72,7 +72,10 @@
       "configuration": "Release",
       "inherits": [
         "test-ninja-vcpkg"
-      ]
+      ],
+      "environment": {
+        "S3_DRIVER_LOGLEVEL": "debug"
+      }
     }
   ]
 }

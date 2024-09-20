@@ -72,6 +72,9 @@ target_link_options(khiopsdriver_file_s3 PRIVATE $<$<CONFIG:RELEASE>:-s>
 )# stripping
 target_link_libraries(khiopsdriver_file_s3 PRIVATE ${AWSSDK_LIBRARIES}
                                                    ZLIB::ZLIB spdlog::spdlog)
+if (WIN32)
+  target_link_libraries(khiopsdriver_file_s3 PRIVATE ws2_32 Wininet winhttp)
+endif()
 target_compile_options(
   khiopsdriver_file_s3
   PRIVATE $<$<CXX_COMPILER_ID:MSVC>:-Wall>

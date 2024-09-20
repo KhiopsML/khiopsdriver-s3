@@ -81,8 +81,6 @@ jobs:
       - name: Build debug version and run sanitizer checks.
         if: matrix.os == 'ubuntu-latest'
         uses: lukka/run-cmake@v10
-        env:
-          S3_DRIVER_LOGLEVEL: debug
         with:
           configurePreset: 'ninja-multi-vcpkg'
           configurePresetAdditionalArgs: "['-DCMAKE_BUILD_TYPE=Debug']"
@@ -107,6 +105,8 @@ jobs:
 
       - name: Run CMake+vcpkg+Ninja+CTest to build packages and generate/build/test the code.
         uses: lukka/run-cmake@v10
+        env:
+          S3_DRIVER_LOGLEVEL: debug
         with:
           configurePreset: 'ninja-multi-vcpkg'
           configurePresetAdditionalArgs: "['-DCMAKE_BUILD_TYPE=Release']"
