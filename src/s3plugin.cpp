@@ -753,7 +753,7 @@ int driver_connect()
 
 	Aws::Client::ClientConfiguration clientConfig;
 	clientConfig.allowSystemProxy = true;
-	clientConfig.verifySSL = false;
+	clientConfig.verifySSL = !GetEnvironmentVariableOrDefault("SSL_NO_VERIFY", "false").compare("true");
 	if (s3endpoint != "")
 	{
 		clientConfig.endpointOverride = s3endpoint;
