@@ -46,7 +46,7 @@ using S3Object = Aws::S3::Model::Object;
 
 int bIsConnected = false;
 
-constexpr const char* S3EndpointProvider = "KHIOPS_ML_S3";
+constexpr const char* KHIOPS_S3 = "KHIOPS_S3";
 
 Aws::SDKOptions options;
 Aws::UniquePtr<Aws::S3::S3Client> client;
@@ -606,7 +606,7 @@ Aws::S3::Model::UploadPartRequest MakeUploadPartRequest(Writer& writer,
 	Aws::S3::Model::UploadPartRequest request =
 	    MakeBaseUploadPartRequest<Aws::S3::Model::UploadPartRequest>(writer);
 
-	const auto body = Aws::MakeShared<Aws::IOStream>(S3EndpointProvider, &pre_buf);
+	const auto body = Aws::MakeShared<Aws::IOStream>(KHIOPS_S3, &pre_buf);
 	request.SetBody(body);
 	return request;
 }
@@ -778,8 +778,7 @@ int driver_connect()
 		configCredentials = Aws::Auth::AWSCredentials(s3accessKey, s3secretKey);
 	}
 
-	client = Aws::MakeUnique<Aws::S3::S3Client>(S3EndpointProvider, configCredentials,
-						    Aws::MakeShared<Aws::S3::S3EndpointProvider>(S3EndpointProvider),
+	client = Aws::MakeUnique<Aws::S3::S3Client>(KHIOPS_S3, configCredentials, nullptr,
 						    clientConfig);
 
 	bIsConnected = true;
@@ -1046,7 +1045,7 @@ SimpleOutcome<ReaderPtr> MakeReaderPtr(Aws::String bucketname, Aws::String objec
 		Aws::Vector<Aws::String> objectnames(1, objectname);
 		Aws::Vector<tOffset> sizes(1, size);
 
-		return Aws::MakeUnique<Reader>(S3EndpointProvider, std::move(bucketname), std::move(objectname), 0, 0,
+		return Aws::MakeUnique<Reader>(KHIOPS_S3, std::move(bucketname), std::move(objectname), 0, 0,
 					       std::move(objectnames), std::move(sizes));
 	}
 
@@ -1108,7 +1107,7 @@ SimpleOutcome<ReaderPtr> MakeReaderPtr(Aws::String bucketname, Aws::String objec
 	}
 
 	// construct the result
-	return Aws::MakeUnique<Reader>(S3EndpointProvider, std::move(bucketname), std::move(objectname), 0,
+	return Aws::MakeUnique<Reader>(KHIOPS_S3, std::move(bucketname), std::move(objectname), 0,
 				       common_header_length, std::move(filenames), std::move(cumulative_size));
 }
 
@@ -1119,7 +1118,7 @@ SimpleOutcome<WriterPtr> MakeWriterPtr(Aws::String bucket, Aws::String object)
 	request.SetKey(std::move(object));
 	auto outcome = client->CreateMultipartUpload(request);
 	RETURN_OUTCOME_ON_ERROR(outcome);
-	return Aws::MakeUnique<Writer>(S3EndpointProvider, outcome.GetResultWithOwnership());
+	return Aws::MakeUnique<Writer>(KHIOPS_S3, outcome.GetResultWithOwnership());
 }
 
 // This template is only here to get specialized
