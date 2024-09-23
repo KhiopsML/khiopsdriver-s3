@@ -23,6 +23,8 @@
 #include <aws/s3/model/PutObjectRequest.h>
 #include <aws/s3/model/UploadPartCopyRequest.h>
 #include <aws/s3/model/UploadPartRequest.h>
+#include <aws/core/http/HttpClientFactory.h>
+#include <aws/core/http/curl/CurlHttpClient.h>
 
 #include "ini.h"
 
@@ -763,7 +765,7 @@ int driver_connect()
 	Aws::Client::ClientConfiguration clientConfig;
 	clientConfig.allowSystemProxy = getenv("http_proxy") != NULL || getenv("https_proxy") != NULL ||
 		getenv("HTTP_PROXY") != NULL || getenv("HTTPS_PROXY") != NULL || getenv("S3_ALLOW_SYSTEM_PROXY");
-	clientConfig.verifySSL = !GetEnvironmentVariableOrDefault("SSL_NO_VERIFY", "false").compare("true");
+	clientConfig.verifySSL = false;
 	if (s3endpoint != "")
 	{
 		clientConfig.endpointOverride = std::move(s3endpoint);

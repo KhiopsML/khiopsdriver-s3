@@ -10,6 +10,9 @@
       "name": "boost-process"
     },
     {
+      "name": "curl"
+    },
+    {
       "name": "fmt"
     },
     {

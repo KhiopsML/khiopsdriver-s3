@@ -20,6 +20,7 @@ include(GoogleTest)
 enable_testing()
 
 # Find dependencies
+find_package(CURL REQUIRED)
 find_package(fmt CONFIG REQUIRED)
 find_package(ZLIB REQUIRED)
 find_package(
@@ -71,10 +72,8 @@ target_include_directories(khiopsdriver_file_s3 PRIVATE ${AWSSDK_INCLUDE_DIRS}
 target_link_options(khiopsdriver_file_s3 PRIVATE $<$<CONFIG:RELEASE>:-s>
 )# stripping
 target_link_libraries(khiopsdriver_file_s3 PRIVATE ${AWSSDK_LIBRARIES}
-                                                   ZLIB::ZLIB spdlog::spdlog)
-if (WIN32)
-  target_link_libraries(khiopsdriver_file_s3 PRIVATE ws2_32 Wininet winhttp)
-endif()
+                                                   ZLIB::ZLIB spdlog::spdlog
+                                                   CURL::libcurl)
 target_compile_options(
   khiopsdriver_file_s3
   PRIVATE $<$<CXX_COMPILER_ID:MSVC>:-Wall>
