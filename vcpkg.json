@@ -10,9 +10,6 @@
       "name": "boost-process"
     },
     {
-      "name": "curl"
-    },
-    {
       "name": "fmt"
     },
     {
@@ -27,6 +24,13 @@
     },
     {
       "name": "zlib"
+    }
+  ],
+  "builtin-baseline": "98aa6396292d57e737a6ef999d4225ca488859d5",
+  "overrides": [
+    {
+        "name": "aws-sdk-cpp",
+        "version": "1.11.285"
     }
   ]
 }
