@@ -23,8 +23,6 @@
 #include <aws/s3/model/PutObjectRequest.h>
 #include <aws/s3/model/UploadPartCopyRequest.h>
 #include <aws/s3/model/UploadPartRequest.h>
-#include <aws/core/http/HttpClientFactory.h>
-#include <aws/core/http/curl/CurlHttpClient.h>
 
 #include "ini.h"
 
