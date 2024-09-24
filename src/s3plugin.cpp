@@ -770,11 +770,12 @@ int driver_connect()
 	{
 		clientConfig.endpointOverride = std::move(s3endpoint);
 	}
+	/*
 	if (s3region != "")
 	{
 		clientConfig.region = s3region;
 	}
-
+*/
 	if (!s3accessKey.empty())
 	{
 		configCredentials = Aws::Auth::AWSCredentials(s3accessKey, s3secretKey);
