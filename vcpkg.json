@@ -30,7 +30,7 @@
   "overrides": [
     {
         "name": "aws-sdk-cpp",
-        "version": "1.11.255"
+        "version": "1.11.352"
     }
   ]
 }
