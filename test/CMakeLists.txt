@@ -39,6 +39,9 @@ target_link_libraries(basic_test PRIVATE ${AWSSDK_LIBRARIES})
 target_link_libraries(basic_test PRIVATE GTest::gtest GTest::gmock
                                          GTest::gmock_main khiopsdriver_file_s3)
 
+if (WIN32)
+  target_link_libraries(basic_test PRIVATE ws2_32 Wininet winhttp)
+endif()
 gtest_discover_tests(basic_test)
 
 add_executable(plugin_test plugin_test.cpp path_helper.cpp)

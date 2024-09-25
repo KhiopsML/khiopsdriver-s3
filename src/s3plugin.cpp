@@ -36,14 +36,17 @@
 #include <memory>
 #include <sstream>
 #include <string>
+#include <aws/core/utils/logging/DefaultLogSystem.h>
+#include <aws/core/utils/logging/ConsoleLogSystem.h>
 
+using namespace Aws::Utils::Logging;
 using namespace s3plugin;
 
 using S3Object = Aws::S3::Model::Object;
 
 int bIsConnected = false;
 
-constexpr const char* S3EndpointProvider = "KHIOPS_ML_S3";
+constexpr const char* KHIOPS_S3 = "KHIOPS_S3";
 
 Aws::SDKOptions options;
 Aws::UniquePtr<Aws::S3::S3Client> client;
@@ -603,7 +606,7 @@ Aws::S3::Model::UploadPartRequest MakeUploadPartRequest(Writer& writer,
 	Aws::S3::Model::UploadPartRequest request =
 	    MakeBaseUploadPartRequest<Aws::S3::Model::UploadPartRequest>(writer);
 
-	const auto body = Aws::MakeShared<Aws::IOStream>(S3EndpointProvider, &pre_buf);
+	const auto body = Aws::MakeShared<Aws::IOStream>(KHIOPS_S3, &pre_buf);
 	request.SetBody(body);
 	return request;
 }
@@ -676,6 +679,9 @@ int driver_connect()
 	Aws::String s3endpoint = "";
 	Aws::String s3region = "us-east-1";
 
+	// Note: this might be useless now since AWS SDK apparently allows setting 
+	// custom endpoints now...
+
 	// Load AWS configuration from file
 	Aws::Auth::AWSCredentials configCredentials;
 	Aws::String userHome = GetEnvironmentVariableOrDefault("HOME", "");
@@ -731,6 +737,10 @@ int driver_connect()
 	// Initialize variables from environment
 	// Both AWS_xxx standard variables and AutoML S3_xxx variables are supported
 	// If both are present, AWS_xxx variables will be given precedence
+
+	// Note: this behavior is normally the same as the one implemented by the SDK
+	// except for the "S3_*" variables that are kept to support legacy applications
+	
 	globalBucketName = GetEnvironmentVariableOrDefault("S3_BUCKET_NAME", "");
 	s3endpoint = GetEnvironmentVariableOrDefault("S3_ENDPOINT", s3endpoint);
 	s3endpoint = GetEnvironmentVariableOrDefault("AWS_ENDPOINT_URL", s3endpoint);
@@ -746,17 +756,22 @@ int driver_connect()
 		return false;
 	}
 
-	//options.loggingOptions.logLevel = Aws::Utils::Logging::LogLevel::Debug;
+	if (!GetEnvironmentVariableOrDefault("AWS_DEBUG_HTTP_LOGS", "").empty()) {
+		options.loggingOptions.logLevel = Aws::Utils::Logging::LogLevel::Debug;
+		options.loggingOptions.logger_create_fn = [] { return std::make_shared<ConsoleLogSystem>(LogLevel::Debug); };
+	}
 
 	// Initialisation du SDK AWS
 	Aws::InitAPI(options);
 
-	Aws::Client::ClientConfiguration clientConfig;
-	clientConfig.allowSystemProxy = true;
-	clientConfig.verifySSL = false;
+	Aws::Client::ClientConfiguration clientConfig(true, "legacy", true);
+	clientConfig.allowSystemProxy = getenv("http_proxy") != NULL || getenv("https_proxy") != NULL ||
+		getenv("HTTP_PROXY") != NULL || getenv("HTTPS_PROXY") != NULL || getenv("S3_ALLOW_SYSTEM_PROXY");
+	clientConfig.verifySSL = true;
+	clientConfig.version = Aws::Http::Version::HTTP_VERSION_2TLS;
 	if (s3endpoint != "")
 	{
-		clientConfig.endpointOverride = s3endpoint;
+		clientConfig.endpointOverride = std::move(s3endpoint);
 	}
 	if (s3region != "")
 	{
@@ -768,8 +783,8 @@ int driver_connect()
 		configCredentials = Aws::Auth::AWSCredentials(s3accessKey, s3secretKey);
 	}
 
-	client = Aws::MakeUnique<Aws::S3::S3Client>(S3EndpointProvider, configCredentials,
-						    Aws::MakeShared<Aws::S3::S3EndpointProvider>(S3EndpointProvider),
+	client = Aws::MakeUnique<Aws::S3::S3Client>(KHIOPS_S3, configCredentials, 
+							Aws::MakeShared<Aws::S3::S3EndpointProvider>(KHIOPS_S3),
 						    clientConfig);
 
 	bIsConnected = true;
@@ -818,7 +833,8 @@ int driver_disconnect()
 	active_reader_handles.clear();
 
 	client.reset();
-
+	
+	//Aws::Utils::Logging::ShutdownAWSLogging();
 	ShutdownAPI(options);
 
 	bIsConnected = kFalse;
@@ -1035,7 +1051,7 @@ SimpleOutcome<ReaderPtr> MakeReaderPtr(Aws::String bucketname, Aws::String objec
 		Aws::Vector<Aws::String> objectnames(1, objectname);
 		Aws::Vector<tOffset> sizes(1, size);
 
-		return Aws::MakeUnique<Reader>(S3EndpointProvider, std::move(bucketname), std::move(objectname), 0, 0,
+		return Aws::MakeUnique<Reader>(KHIOPS_S3, std::move(bucketname), std::move(objectname), 0, 0,
 					       std::move(objectnames), std::move(sizes));
 	}
 
@@ -1097,7 +1113,7 @@ SimpleOutcome<ReaderPtr> MakeReaderPtr(Aws::String bucketname, Aws::String objec
 	}
 
 	// construct the result
-	return Aws::MakeUnique<Reader>(S3EndpointProvider, std::move(bucketname), std::move(objectname), 0,
+	return Aws::MakeUnique<Reader>(KHIOPS_S3, std::move(bucketname), std::move(objectname), 0,
 				       common_header_length, std::move(filenames), std::move(cumulative_size));
 }
 
@@ -1108,7 +1124,7 @@ SimpleOutcome<WriterPtr> MakeWriterPtr(Aws::String bucket, Aws::String object)
 	request.SetKey(std::move(object));
 	auto outcome = client->CreateMultipartUpload(request);
 	RETURN_OUTCOME_ON_ERROR(outcome);
-	return Aws::MakeUnique<Writer>(S3EndpointProvider, outcome.GetResultWithOwnership());
+	return Aws::MakeUnique<Writer>(KHIOPS_S3, outcome.GetResultWithOwnership());
 }
 
 // This template is only here to get specialized

@@ -25,5 +25,12 @@
     {
       "name": "zlib"
     }
+  ],
+  "builtin-baseline": "91f002cae2281636da5155efc5a11d67efa72415",
+  "overrides": [
+    {
+        "name": "aws-sdk-cpp",
+        "version": "1.11.412"
+    }
   ]
 }
