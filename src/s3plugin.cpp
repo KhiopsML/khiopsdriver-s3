@@ -763,10 +763,8 @@ int driver_connect()
 	Aws::Client::ClientConfiguration clientConfig(true, "legacy", true);
 	clientConfig.allowSystemProxy = getenv("http_proxy") != NULL || getenv("https_proxy") != NULL ||
 		getenv("HTTP_PROXY") != NULL || getenv("HTTPS_PROXY") != NULL || getenv("S3_ALLOW_SYSTEM_PROXY");
-	clientConfig.verifySSL = false;
-
-	// Force HTTP1.1 since S3 service doesn't support HTTP2 yet!
-	clientConfig.version = Aws::Http::Version::HTTP_VERSION_1_1;
+	clientConfig.verifySSL = true;
+	clientConfig.version = Aws::Http::Version::HTTP_VERSION_2TLS;
 	if (s3endpoint != "")
 	{
 		clientConfig.endpointOverride = std::move(s3endpoint);
