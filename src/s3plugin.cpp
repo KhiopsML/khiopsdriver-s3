@@ -781,7 +781,8 @@ int driver_connect()
 		configCredentials = Aws::Auth::AWSCredentials(s3accessKey, s3secretKey);
 	}
 
-	client = Aws::MakeUnique<Aws::S3::S3Client>(KHIOPS_S3, configCredentials, nullptr,
+	client = Aws::MakeUnique<Aws::S3::S3Client>(KHIOPS_S3, configCredentials, 
+							Aws::MakeShared<Aws::S3::S3EndpointProvider>(KHIOPS_S3),
 						    clientConfig);
 
 	bIsConnected = true;
