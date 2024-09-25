@@ -1,23 +1,19 @@
 {
-  "name": "gcs-driver",
+  "name": "s3-driver",
   "version-string": "latest",
-  "description": "Setting up C++ for Google Cloud with CMake and vcpkg",
+  "description": "Setting up AWS SDK with CMake and vcpkg",
   "dependencies": [
     {
-      "name": "boost-uuid"
+      "name": "aws-sdk-cpp",
+      "features": [
+        "s3"
+      ]
     },
     {
       "name": "boost-process"
     },
     {
-      "name": "fmt"
-    },
-    {
-      "name": "aws-sdk-cpp",
-      "default-features": false,
-      "features": [
-        "s3"
-      ]
+      "name": "boost-uuid"
     },
     {
       "name": "spdlog"
