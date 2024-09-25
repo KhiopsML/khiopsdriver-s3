@@ -1,0 +1,24 @@
+package:
+  name: khiops-driver-s3
+  version: 0.0.1
+
+source:
+  path: ../
+
+build:
+  number: 0
+requirements:
+  build:
+    - cmake
+    - ninja
+    - {{ compiler('cxx') }}
+
+files:
+  - lib/libkhiopsdriver_file_s3.so*
+
+about:
+  home: https://khiops.org
+  license: BSD+3-clause
+  summary: Khiops driver to access files on Amazon S3
+  doc_url: https://khiops.org
+  dev_url: https://github.com/khiopsml/khiops
