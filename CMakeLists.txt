@@ -11,8 +11,8 @@ if(DEFINED ENV{VCPKG_DEFAULT_TRIPLET} AND NOT DEFINED VCPKG_TARGET_TRIPLET)
 endif()
 
 cmake_minimum_required(VERSION 3.20)
-# Enforce c++17 standard.
-set(CMAKE_CXX_STANDARD 17)
+# Enforce c++11 standard.
+set(CMAKE_CXX_STANDARD 11)
 
 project(khiops-s3 LANGUAGES CXX)
 
@@ -24,7 +24,7 @@ find_package(fmt CONFIG REQUIRED)
 find_package(ZLIB REQUIRED)
 find_package(
   AWSSDK CONFIG
-  COMPONENTS core s3
+  COMPONENTS s3
   REQUIRED)
 find_package(spdlog CONFIG REQUIRED)
 
@@ -63,13 +63,16 @@ if((CMAKE_SYSTEM_NAME STREQUAL "Linux") AND NOT (CMAKE_BUILD_TYPE STREQUAL
     --gtest_output=xml:coverage.junit.xml)
 endif()
 
-add_library(khiopsdriver_file_s3 SHARED src/s3plugin.h src/s3plugin.cpp)
+add_library(khiopsdriver_file_s3 SHARED src/s3plugin.h src/s3plugin_internal.h
+                                        src/s3plugin.cpp)
 
-target_include_directories(khiopsdriver_file_s3 PRIVATE ${AWSSDK_INCLUDE_DIRS})
+target_include_directories(khiopsdriver_file_s3 PRIVATE ${AWSSDK_INCLUDE_DIRS}
+                                                        src/contrib)
 target_link_options(khiopsdriver_file_s3 PRIVATE $<$<CONFIG:RELEASE>:-s>
 )# stripping
 target_link_libraries(khiopsdriver_file_s3 PRIVATE ${AWSSDK_LIBRARIES}
                                                    ZLIB::ZLIB spdlog::spdlog)
+
 target_compile_options(
   khiopsdriver_file_s3
   PRIVATE $<$<CXX_COMPILER_ID:MSVC>:-Wall>

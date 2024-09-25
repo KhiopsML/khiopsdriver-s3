@@ -20,7 +20,8 @@
       "inherits": "ninja-multi-vcpkg",
       "binaryDir": "${sourceDir}/builds/ninja-multi-vcpkg",
       "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Debug"
+        "CMAKE_BUILD_TYPE": "Debug",
+        "BUILD_TESTS": "true"
       }
     },
     {
