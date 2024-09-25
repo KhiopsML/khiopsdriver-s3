@@ -137,6 +137,10 @@ jobs:
         run: |
           cmake --build --preset ninja-vcpkg-release
 
+      - name: Run single test (with logs)
+        run: |
+          builds/ninja-multi-vcpkg/bin/basic_test --gtest_filter=S3DriverTest.GetFileSize
+
       # Test the whole project with CTest, again Release configuration only.
       - name: Test (Release configuration)
         run: |
