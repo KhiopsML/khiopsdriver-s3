@@ -66,7 +66,6 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: true
-          fetch-depth: 0
           
       - name: "Create directory '${{ env.VCPKG_DEFAULT_BINARY_CACHE }}'"
         run: mkdir -p $VCPKG_DEFAULT_BINARY_CACHE
@@ -137,9 +136,9 @@ jobs:
         run: |
           cmake --build --preset ninja-vcpkg-release
 
-      - name: Run single test (with logs)
-        run: |
-          builds/ninja-multi-vcpkg/bin/basic_test --gtest_filter=S3DriverTest.GetFileSize
+      #- name: Run single test (with logs)
+      #  run: |
+      #    builds/ninja-multi-vcpkg/bin/basic_test --gtest_filter=S3DriverTest.GetFileSize
 
       # Test the whole project with CTest, again Release configuration only.
       - name: Test (Release configuration)

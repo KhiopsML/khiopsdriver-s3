@@ -679,6 +679,9 @@ int driver_connect()
 	Aws::String s3endpoint = "";
 	Aws::String s3region = "us-east-1";
 
+	// Note: this might be useless now since AWS SDK apparently allows setting 
+	// custom endpoints now...
+
 	// Load AWS configuration from file
 	Aws::Auth::AWSCredentials configCredentials;
 	Aws::String userHome = GetEnvironmentVariableOrDefault("HOME", "");
@@ -734,6 +737,10 @@ int driver_connect()
 	// Initialize variables from environment
 	// Both AWS_xxx standard variables and AutoML S3_xxx variables are supported
 	// If both are present, AWS_xxx variables will be given precedence
+
+	// Note: this behavior is normally the same as the one implemented by the SDK
+	// except for the "S3_*" variables that are kept to support legacy applications
+	
 	globalBucketName = GetEnvironmentVariableOrDefault("S3_BUCKET_NAME", "");
 	s3endpoint = GetEnvironmentVariableOrDefault("S3_ENDPOINT", s3endpoint);
 	s3endpoint = GetEnvironmentVariableOrDefault("AWS_ENDPOINT_URL", s3endpoint);
@@ -749,14 +756,11 @@ int driver_connect()
 		return false;
 	}
 
-	options.loggingOptions.logLevel = Aws::Utils::Logging::LogLevel::Debug;
-	options.loggingOptions.logger_create_fn = [] { return std::make_shared<ConsoleLogSystem>(LogLevel::Debug); };
+	if (!GetEnvironmentVariableOrDefault("AWS_DEBUG_HTTP_LOGS", "").empty()) {
+		options.loggingOptions.logLevel = Aws::Utils::Logging::LogLevel::Debug;
+		options.loggingOptions.logger_create_fn = [] { return std::make_shared<ConsoleLogSystem>(LogLevel::Debug); };
+	}
 
-	/*
-	Aws::Utils::Logging::InitializeAWSLogging(
-		Aws::MakeShared<Aws::Utils::Logging::DefaultLogSystem>(
-			"RunUnitTests", Aws::Utils::Logging::LogLevel::Trace, "aws_sdk_"));
-		*/	
 	// Initialisation du SDK AWS
 	Aws::InitAPI(options);
 
