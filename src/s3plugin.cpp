@@ -483,6 +483,8 @@ Aws::String GetEnvironmentVariableOrDefault(const Aws::String& variable_name, co
 
   if (value && std::strlen(value) > 0) {
     return value;
+  } else {
+	return default_value;
   }
 }
 
