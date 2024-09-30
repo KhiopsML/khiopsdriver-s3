@@ -473,8 +473,17 @@ ParseURIOutcome ParseS3Uri(const Aws::String& s3_uri)
 
 Aws::String GetEnvironmentVariableOrDefault(const Aws::String& variable_name, const Aws::String& default_value)
 {
-	const char* value = std::getenv(variable_name.c_str());
-	return value ? value : default_value;
+#ifdef _WIN32
+  size_t len;
+  char value[2048];
+  getenv_s(&len, value, 2048, variable_name.c_str());
+#else
+  char *value = getenv(variable_name.c_str());
+#endif
+
+  if (value && std::strlen(value) > 0) {
+    return value;
+  }
 }
 
 bool IsMultifile(const Aws::String& pattern, size_t& first_special_char_idx)
@@ -1020,7 +1029,7 @@ SizeOutcome getFileSize(const Aws::String& bucket_name, const Aws::String& objec
 	{
 		nb_headers_to_subtract = 0;
 	}
-	return total_size - nb_headers_to_subtract * header_size;
+	return total_size - static_cast<long long>(nb_headers_to_subtract * header_size);
 }
 
 long long int driver_getFileSize(const char* filename)
@@ -1330,7 +1339,7 @@ void* driver_fopen(const char* filename, char mode)
 		return writer_ptr;
 	}
 	default:
-		LogError("Invalid open mode " + mode);
+    	LogError(std::string("Invalid open mode: ") + mode);
 		return nullptr;
 	}
 }

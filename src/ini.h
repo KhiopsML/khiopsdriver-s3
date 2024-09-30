@@ -322,7 +322,7 @@ private:
     std::string fileContents;
     fileContents.resize(fileSize);
     fileReadStream.seekg(isBOM ? 3 : 0, std::ios::beg);
-    fileReadStream.read(&fileContents[0], fileSize);
+    fileReadStream.read(&fileContents[0], static_cast<std::streamsize>(fileSize));
     fileReadStream.close();
     T_LineData output;
     if (fileSize == 0) {
