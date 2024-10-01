@@ -632,22 +632,6 @@ public:
     INIReader reader(filename);
     return reader >> data;
   }
-  bool generate(INIStructure const &data, bool pretty = false) const {
-    if (filename.empty()) {
-      return false;
-    }
-    INIGenerator generator(filename);
-    generator.prettyPrint = pretty;
-    return generator << data;
-  }
-  bool write(INIStructure &data, bool pretty = false) const {
-    if (filename.empty()) {
-      return false;
-    }
-    INIWriter writer(filename);
-    writer.prettyPrint = pretty;
-    return writer << data;
-  }
 };
 } // namespace mINI
 

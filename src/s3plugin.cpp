@@ -211,16 +211,6 @@ template <typename H> void EraseRemove(HandleContainer<H>& container, HandleIt<H
 	container.pop_back();
 }
 
-struct SimpleErrorModel
-{
-	Aws::String err_msg_;
-
-	const Aws::String& GetMessage() const
-	{
-		return err_msg_;
-	}
-};
-
 struct SimpleError
 {
 	int code_;
@@ -229,11 +219,6 @@ struct SimpleError
 	Aws::String GetMessage() const
 	{
 		return std::to_string(code_) + err_msg_;
-	}
-
-	SimpleErrorModel GetModeledError() const
-	{
-		return {GetMessage()};
 	}
 };
 
