@@ -95,6 +95,9 @@
 #include <utility>
 #include <vector>
 
+#pragma warning( push )
+#pragma warning(disable:4514)
+
 namespace mINI {
 namespace INIStringUtil {
 const char *const whitespaceDelimiters = " \t\n\r\f\v";
@@ -632,7 +635,25 @@ public:
     INIReader reader(filename);
     return reader >> data;
   }
+  bool generate(INIStructure const &data, bool pretty = false) const {
+    if (filename.empty()) {
+      return false;
+    }
+    INIGenerator generator(filename);
+    generator.prettyPrint = pretty;
+    return generator << data;
+  }
+  bool write(INIStructure &data, bool pretty = false) const {
+    if (filename.empty()) {
+      return false;
+    }
+    INIWriter writer(filename);
+    writer.prettyPrint = pretty;
+    return writer << data;
+  }
 };
 } // namespace mINI
+
+#pragma warning( pop )
 
 #endif // MINI_INI_H_
