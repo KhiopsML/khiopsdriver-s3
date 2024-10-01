@@ -780,7 +780,7 @@ int driver_connect()
 	!GetEnvironmentVariableOrDefault("https_proxy", "").empty() ||
 		!GetEnvironmentVariableOrDefault("HTTP_PROXY", "").empty() || 
 		!GetEnvironmentVariableOrDefault("HTTPS_PROXY", "").empty() || 
-		!GetEnvironmentVariableOrDefault("S3_ALLOW_SYSTEM_PROXY").empty();
+		!GetEnvironmentVariableOrDefault("S3_ALLOW_SYSTEM_PROXY", "").empty();
 	clientConfig.verifySSL = true;
 	clientConfig.version = Aws::Http::Version::HTTP_VERSION_2TLS;
 	if (s3endpoint != "")
