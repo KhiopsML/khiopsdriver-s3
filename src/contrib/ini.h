@@ -95,8 +95,10 @@
 #include <utility>
 #include <vector>
 
+#ifdef _WIN32
 #pragma warning( push )
 #pragma warning(disable:4514)
+#endif
 
 namespace mINI {
 namespace INIStringUtil {
@@ -654,6 +656,8 @@ public:
 };
 } // namespace mINI
 
+#ifdef _WIN32
 #pragma warning( pop )
+#endif
 
 #endif // MINI_INI_H_
