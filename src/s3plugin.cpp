@@ -289,7 +289,7 @@ SizeOutcome DownloadFileRangeToVector(const Aws::String& bucket, const Aws::Stri
 
 	// Convert string to vector<char>
 	contentVector.assign(objectData.begin(), objectData.end());
-	return objectData.size();
+	return static_cast<long long>(objectData.size());
 }
 
 SizeOutcome DownloadFileRangeToBuffer(const Aws::String& bucket, const Aws::String& object_name, unsigned char* buffer,
@@ -1248,7 +1248,7 @@ UploadOutcome InitiateAppend(Writer& writer, size_t source_bytes_to_copy)
 		// reminder: byte ranges are inclusive
 		auto outcome = DownloadFileRangeToVector(multipartupload_data.GetBucket(),
 							 multipartupload_data.GetKey(), writer.buffer_,
-							 start_range, start_range + source_bytes_to_copy - 1);
+							 start_range, start_range + static_cast<int64_t>(source_bytes_to_copy) - 1);
 		PASS_OUTCOME_ON_ERROR(outcome);
 
 		tOffset actual_read = outcome.GetResult();
@@ -1613,7 +1613,7 @@ long long int driver_fwrite(const void* ptr, size_t size, size_t count, void* st
 	// release unused memory
 	buffer.shrink_to_fit();
 
-	return to_write;
+	return static_cast<long long>(to_write);
 }
 
 int driver_fflush(void*)
@@ -1853,5 +1853,5 @@ bool test_compareFiles(const char* local_file_path_str, const char* s3_uri_str) 
   // Comparer les contenus
   auto result = local_content == s3_content.str() ? kSuccess : kFailure;
 
-  return result;
+  return static_cast<bool>(result);
 }
