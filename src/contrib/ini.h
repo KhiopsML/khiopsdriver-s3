@@ -95,6 +95,11 @@
 #include <utility>
 #include <vector>
 
+#ifdef _WIN32
+#pragma warning( push )
+#pragma warning(disable:4514)
+#endif
+
 namespace mINI {
 namespace INIStringUtil {
 const char *const whitespaceDelimiters = " \t\n\r\f\v";
@@ -322,7 +327,7 @@ private:
     std::string fileContents;
     fileContents.resize(fileSize);
     fileReadStream.seekg(isBOM ? 3 : 0, std::ios::beg);
-    fileReadStream.read(&fileContents[0], fileSize);
+    fileReadStream.read(&fileContents[0], static_cast<std::streamsize>(fileSize));
     fileReadStream.close();
     T_LineData output;
     if (fileSize == 0) {
@@ -530,7 +535,7 @@ private:
           }
         }
         if (!linesToAdd.empty()) {
-          output.insert(output.begin() + lastKeyLine, linesToAdd.begin(),
+          output.insert(output.begin() + static_cast<int64_t>(lastKeyLine), linesToAdd.begin(),
                         linesToAdd.end());
         }
         if (writeNewKeys) {
@@ -650,5 +655,9 @@ public:
   }
 };
 } // namespace mINI
+
+#ifdef _WIN32
+#pragma warning( pop )
+#endif
 
 #endif // MINI_INI_H_
