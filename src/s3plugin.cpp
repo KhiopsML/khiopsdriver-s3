@@ -1225,8 +1225,8 @@ UploadOutcome InitiateAppend(Writer& writer, size_t source_bytes_to_copy)
 	int64_t start_range = 0;
 	while (source_bytes_to_copy > Writer::buff_min_)
 	{
-		const size_t copy_count =
-		    source_bytes_to_copy > Writer::buff_max_ ? Writer::buff_max_ : source_bytes_to_copy;
+		const int64_t copy_count =
+		    source_bytes_to_copy > Writer::buff_max_ ? Writer::buff_max_ : static_cast<int64_t>(source_bytes_to_copy);
 			
 		// peculiarity of AWS: the range for the copy request has an inclusive end,
 		// meaning that the bytes numbered start_range to end_range included are copied
