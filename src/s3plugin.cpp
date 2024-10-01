@@ -776,8 +776,11 @@ int driver_connect()
 	Aws::InitAPI(options);
 
 	Aws::Client::ClientConfiguration clientConfig(true, "legacy", true);
-	clientConfig.allowSystemProxy = getenv("http_proxy") != NULL || getenv("https_proxy") != NULL ||
-		getenv("HTTP_PROXY") != NULL || getenv("HTTPS_PROXY") != NULL || getenv("S3_ALLOW_SYSTEM_PROXY");
+	clientConfig.allowSystemProxy = !GetEnvironmentVariableOrDefault("http_proxy", "").empty() || 
+	!GetEnvironmentVariableOrDefault("https_proxy", "").empty() ||
+		!GetEnvironmentVariableOrDefault("HTTP_PROXY", "").empty() || 
+		!GetEnvironmentVariableOrDefault("HTTPS_PROXY", "").empty() || 
+		!GetEnvironmentVariableOrDefault("S3_ALLOW_SYSTEM_PROXY").empty();
 	clientConfig.verifySSL = true;
 	clientConfig.version = Aws::Http::Version::HTTP_VERSION_2TLS;
 	if (s3endpoint != "")
@@ -1226,7 +1229,7 @@ UploadOutcome InitiateAppend(Writer& writer, size_t source_bytes_to_copy)
 	while (source_bytes_to_copy > Writer::buff_min_)
 	{
 		const int64_t copy_count =
-		    source_bytes_to_copy > Writer::buff_max_ ? Writer::buff_max_ : static_cast<int64_t>(source_bytes_to_copy);
+		    static_cast<int64_t>(source_bytes_to_copy > Writer::buff_max_ ? Writer::buff_max_ : source_bytes_to_copy);
 			
 		// peculiarity of AWS: the range for the copy request has an inclusive end,
 		// meaning that the bytes numbered start_range to end_range included are copied

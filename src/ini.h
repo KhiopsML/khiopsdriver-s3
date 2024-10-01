@@ -530,7 +530,7 @@ private:
           }
         }
         if (!linesToAdd.empty()) {
-          output.insert(output.begin() + lastKeyLine, linesToAdd.begin(),
+          output.insert(output.begin() + static_cast<int64_t>(lastKeyLine), linesToAdd.begin(),
                         linesToAdd.end());
         }
         if (writeNewKeys) {
