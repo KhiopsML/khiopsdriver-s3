@@ -97,10 +97,9 @@ endif(BUILD_TESTS)
 
 add_subdirectory(test)
 
-include(GNUInstallDirs)
 install(
   TARGETS khiopsdriver_file_s3
-  LIBRARY DESTINATION ${CMAKE_INSTALL_LIB}
+  LIBRARY DESTINATION "lib"
   ARCHIVE # lib on windows
   RUNTIME # dll on windows
 )
