@@ -5,6 +5,7 @@
 #include "s3plugin.h"
 #include "s3plugin_internal.h"
 #include "contrib/matching.h"
+#include "contrib/ini.h"
 
 #include "spdlog/spdlog.h"
 
@@ -23,8 +24,6 @@
 #include <aws/s3/model/PutObjectRequest.h>
 #include <aws/s3/model/UploadPartCopyRequest.h>
 #include <aws/s3/model/UploadPartRequest.h>
-
-#include "ini.h"
 
 #include <algorithm>
 #include <assert.h>
