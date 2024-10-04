@@ -5,6 +5,7 @@
 #include "s3plugin.h"
 #include "s3plugin_internal.h"
 #include "contrib/matching.h"
+#include "contrib/ini.h"
 
 #include "spdlog/spdlog.h"
 
@@ -23,8 +24,6 @@
 #include <aws/s3/model/PutObjectRequest.h>
 #include <aws/s3/model/UploadPartCopyRequest.h>
 #include <aws/s3/model/UploadPartRequest.h>
-
-#include "ini.h"
 
 #include <algorithm>
 #include <assert.h>
@@ -211,16 +210,6 @@ template <typename H> void EraseRemove(HandleContainer<H>& container, HandleIt<H
 	container.pop_back();
 }
 
-struct SimpleErrorModel
-{
-	Aws::String err_msg_;
-
-	const Aws::String& GetMessage() const
-	{
-		return err_msg_;
-	}
-};
-
 struct SimpleError
 {
 	int code_;
@@ -229,11 +218,6 @@ struct SimpleError
 	Aws::String GetMessage() const
 	{
 		return std::to_string(code_) + err_msg_;
-	}
-
-	SimpleErrorModel GetModeledError() const
-	{
-		return {GetMessage()};
 	}
 };
 
@@ -289,7 +273,7 @@ SizeOutcome DownloadFileRangeToVector(const Aws::String& bucket, const Aws::Stri
 
 	// Convert string to vector<char>
 	contentVector.assign(objectData.begin(), objectData.end());
-	return objectData.size();
+	return static_cast<long long>(objectData.size());
 }
 
 SizeOutcome DownloadFileRangeToBuffer(const Aws::String& bucket, const Aws::String& object_name, unsigned char* buffer,
@@ -473,8 +457,19 @@ ParseURIOutcome ParseS3Uri(const Aws::String& s3_uri)
 
 Aws::String GetEnvironmentVariableOrDefault(const Aws::String& variable_name, const Aws::String& default_value)
 {
-	const char* value = std::getenv(variable_name.c_str());
-	return value ? value : default_value;
+#ifdef _WIN32
+  size_t len;
+  char value[2048];
+  getenv_s(&len, value, 2048, variable_name.c_str());
+#else
+  char *value = getenv(variable_name.c_str());
+#endif
+
+  if (value && std::strlen(value) > 0) {
+    return value;
+  } else {
+	return default_value;
+  }
 }
 
 bool IsMultifile(const Aws::String& pattern, size_t& first_special_char_idx)
@@ -765,8 +760,11 @@ int driver_connect()
 	Aws::InitAPI(options);
 
 	Aws::Client::ClientConfiguration clientConfig(true, "legacy", true);
-	clientConfig.allowSystemProxy = getenv("http_proxy") != NULL || getenv("https_proxy") != NULL ||
-		getenv("HTTP_PROXY") != NULL || getenv("HTTPS_PROXY") != NULL || getenv("S3_ALLOW_SYSTEM_PROXY");
+	clientConfig.allowSystemProxy = !GetEnvironmentVariableOrDefault("http_proxy", "").empty() || 
+	!GetEnvironmentVariableOrDefault("https_proxy", "").empty() ||
+		!GetEnvironmentVariableOrDefault("HTTP_PROXY", "").empty() || 
+		!GetEnvironmentVariableOrDefault("HTTPS_PROXY", "").empty() || 
+		!GetEnvironmentVariableOrDefault("S3_ALLOW_SYSTEM_PROXY", "").empty();
 	clientConfig.verifySSL = true;
 	clientConfig.version = Aws::Http::Version::HTTP_VERSION_2TLS;
 	if (s3endpoint != "")
@@ -1020,7 +1018,7 @@ SizeOutcome getFileSize(const Aws::String& bucket_name, const Aws::String& objec
 	{
 		nb_headers_to_subtract = 0;
 	}
-	return total_size - nb_headers_to_subtract * header_size;
+	return total_size - static_cast<long long>(nb_headers_to_subtract * header_size);
 }
 
 long long int driver_getFileSize(const char* filename)
@@ -1214,8 +1212,8 @@ UploadOutcome InitiateAppend(Writer& writer, size_t source_bytes_to_copy)
 	int64_t start_range = 0;
 	while (source_bytes_to_copy > Writer::buff_min_)
 	{
-		const size_t copy_count =
-		    source_bytes_to_copy > Writer::buff_max_ ? Writer::buff_max_ : source_bytes_to_copy;
+		const int64_t copy_count =
+		    static_cast<int64_t>(source_bytes_to_copy > Writer::buff_max_ ? Writer::buff_max_ : source_bytes_to_copy);
 			
 		// peculiarity of AWS: the range for the copy request has an inclusive end,
 		// meaning that the bytes numbered start_range to end_range included are copied
@@ -1234,7 +1232,7 @@ UploadOutcome InitiateAppend(Writer& writer, size_t source_bytes_to_copy)
 		// reminder: byte ranges are inclusive
 		auto outcome = DownloadFileRangeToVector(multipartupload_data.GetBucket(),
 							 multipartupload_data.GetKey(), writer.buffer_,
-							 start_range, start_range + source_bytes_to_copy - 1);
+							 start_range, start_range + static_cast<int64_t>(source_bytes_to_copy) - 1);
 		PASS_OUTCOME_ON_ERROR(outcome);
 
 		tOffset actual_read = outcome.GetResult();
@@ -1330,7 +1328,7 @@ void* driver_fopen(const char* filename, char mode)
 		return writer_ptr;
 	}
 	default:
-		LogError("Invalid open mode " + mode);
+    	LogError(std::string("Invalid open mode: ") + mode);
 		return nullptr;
 	}
 }
@@ -1599,7 +1597,7 @@ long long int driver_fwrite(const void* ptr, size_t size, size_t count, void* st
 	// release unused memory
 	buffer.shrink_to_fit();
 
-	return to_write;
+	return static_cast<long long>(to_write);
 }
 
 int driver_fflush(void*)
@@ -1839,5 +1837,5 @@ bool test_compareFiles(const char* local_file_path_str, const char* s3_uri_str) 
   // Comparer les contenus
   auto result = local_content == s3_content.str() ? kSuccess : kFailure;
 
-  return result;
+  return static_cast<bool>(result);
 }

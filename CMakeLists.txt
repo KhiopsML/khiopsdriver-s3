@@ -79,7 +79,8 @@ target_link_libraries(khiopsdriver_file_s3 PRIVATE ${AWSSDK_LIBRARIES}
 
 target_compile_options(
   khiopsdriver_file_s3
-  PRIVATE $<$<CXX_COMPILER_ID:MSVC>:-Wall>
+  PRIVATE
+    $<$<CXX_COMPILER_ID:MSVC>:-Wall;/wd4582;/wd4583;/wd4625;/wd4626;/wd4710;/wd4711;/wd4820;/wd4868>
   PRIVATE $<$<CXX_COMPILER_ID:AppleClang,Clang,GNU>:-Wall;-Wextra;-pedantic>)
 
 set_target_properties(khiopsdriver_file_s3 PROPERTIES SOVERSION ${PROJECT_VERSION_MAJOR} VERSION ${PROJECT_VERSION})
@@ -96,10 +97,9 @@ endif(BUILD_TESTS)
 
 add_subdirectory(test)
 
-include(GNUInstallDirs)
 install(
   TARGETS khiopsdriver_file_s3
-  LIBRARY DESTINATION ${CMAKE_INSTALL_LIB}
+  LIBRARY DESTINATION "lib"
   ARCHIVE # lib on windows
   RUNTIME # dll on windows
 )

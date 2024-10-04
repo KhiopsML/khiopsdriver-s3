@@ -22,7 +22,7 @@ add_executable(basic_test basic_test.cpp drivertest.cpp)
 
 target_compile_options(
   basic_test
-  PRIVATE $<$<CXX_COMPILER_ID:MSVC>:-Wall>
+  PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/W4;/wd4101;/wd4625;/wd4710;/wd4711>
   PRIVATE $<$<CXX_COMPILER_ID:AppleClang,Clang,GNU>:-Wall;-Wextra;-pedantic>)
 
 # MSVC requires /bigobj to build in debug config
@@ -40,14 +40,14 @@ target_link_libraries(basic_test PRIVATE GTest::gtest GTest::gmock
                                          GTest::gmock_main khiopsdriver_file_s3)
 
 if (WIN32)
-  target_link_libraries(basic_test PRIVATE ws2_32 Wininet winhttp)
+  target_link_libraries(basic_test PRIVATE ws2_32)
 endif()
 gtest_discover_tests(basic_test)
 
 add_executable(plugin_test plugin_test.cpp path_helper.cpp)
 target_compile_options(
   plugin_test
-  PRIVATE $<$<CXX_COMPILER_ID:MSVC>:-Wall>
+  PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/W4;/wd4101;/wd4710;/wd4711>
   PRIVATE $<$<CXX_COMPILER_ID:AppleClang,Clang,GNU>:-Wall;-Wextra;-pedantic>)
 if(WIN32)
   # custom build and test execution for Windows
