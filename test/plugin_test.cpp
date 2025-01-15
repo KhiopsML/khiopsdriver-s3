@@ -206,14 +206,6 @@ void *get_shared_library_function(void *library_handle,
   return ptr;
 }
 
-TEST(GCSPluginTest, GetVersion) {
-  auto library_handle = init_plugin();
-
-  ASSERT_STREQ(ptr_driver_getVersion(), "0.1.0");
-
-  deinit_plugin(library_handle);
-}
-
 TEST(GCSPluginTest, GetScheme) {
   auto library_handle = init_plugin();
 

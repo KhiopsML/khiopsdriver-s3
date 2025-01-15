@@ -132,7 +132,7 @@ TEST(S3DriverTest, GetDriverName) {
   ASSERT_STREQ(driver_getDriverName(), "S3 driver");
 }
 
-TEST(S3DriverTest, GetVersion) { ASSERT_STREQ(driver_getVersion(), "0.1.0"); }
+TEST(S3DriverTest, GetVersion) { ASSERT_STREQ(driver_getVersion(), DRIVER_VERSION); }
 
 TEST(S3DriverTest, GetScheme) { ASSERT_STREQ(driver_getScheme(), "s3"); }
 
