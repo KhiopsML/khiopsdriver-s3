@@ -27,14 +27,14 @@ jobs:
       - name: Checkout sources
         uses: actions/checkout@v4
         with:
-          submodules: true
-     
+          submodules: recursive
+          fetch-depth: 0
       - name: Configure CMake
         run: |
             cmake -B builds -S . -G 'Unix Makefiles'  -D CMAKE_BUILD_TYPE=Release -D CMAKE_TOOLCHAIN_FILE=vcpkg/scripts/buildsystems/vcpkg.cmake
       - name: Build 
         run: |
-            cmake --build builds --target khiopsdriver_file_gcs
+            cmake --build builds --target khiopsdriver_file_s3
       - name: Build package with CPack
         run: |
             cd builds/ && cpack -G RPM
