@@ -14,5 +14,10 @@ cmake --fresh -G Ninja -D CMAKE_BUILD_TYPE=Release -D VCPKG_BUILD_TYPE=release -
 REM Build
 cmake --build builds/conda --target khiopsdriver_file_s3
 
-REM Copy binary to conda package
-cmake --install builds/conda --prefix $PREFIX
+REM Create drivers installation directory
+mkdir %PREFIX%\bin
+mkdir %PREFIX%\lib
+
+REM Copy the libs for the driver package
+copy builds\conda\bin\*.dll %PREFIX%\bin\
+move %PREFIX%\bin\khiopsdriver_file_s3.dll %PREFIX%\lib\libkhiopsdriver_file_s3.dll

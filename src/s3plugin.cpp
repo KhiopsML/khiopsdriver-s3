@@ -45,6 +45,7 @@ using S3Object = Aws::S3::Model::Object;
 
 int bIsConnected = false;
 
+constexpr const char *version = DRIVER_VERSION;
 constexpr const char* KHIOPS_S3 = "KHIOPS_S3";
 
 Aws::SDKOptions options;
@@ -629,10 +630,7 @@ const char* driver_getDriverName()
 	return "S3 driver";
 }
 
-const char* driver_getVersion()
-{
-	return "0.1.0";
-}
+const char *driver_getVersion() { return version; }
 
 const char* driver_getScheme()
 {
