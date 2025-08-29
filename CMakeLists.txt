@@ -30,12 +30,26 @@ project(
 set(INSTALL_GTEST OFF)
 set(INSTALL_GMOCK OFF)
 
+# MSVC: Eliminate some options the old CMake way because VS sets them with undesired default values
+#
+# - the C++ exception flags
+# - the runtime information flags
+# - the debug information generation flags
+#
+if(MSVC)
+  string(REGEX REPLACE "/EH[a-z]+" "" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
+  string(REGEX REPLACE "/GR" "" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
+  string(REGEX REPLACE "/Zi" "" CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG}")
+endif()
+
 include(GoogleTest)
 enable_testing()
 
 # Find dependencies
 find_package(fmt CONFIG REQUIRED)
-find_package(ZLIB REQUIRED)
+if(NOT (BUILD_ENV STREQUAL "conda"))
+  find_package(ZLIB REQUIRED)
+endif()
 find_package(
   AWSSDK CONFIG
   COMPONENTS s3
@@ -56,7 +70,7 @@ set(CMAKE_VISIBILITY_INLINES_HIDDEN 1)
 #
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY $<1:${CMAKE_BINARY_DIR}/lib/>)
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY $<1:${CMAKE_BINARY_DIR}/lib/>)
-set(CMAKE_RUNTIME_OUTPUT_DIRECTORY $<1:${CMAKE_BINARY_DIR}/bin/>)
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY $<1:${CMAKE_BINARY_DIR}/lib/>)
 message(STATUS "Executables will be stored in ${CMAKE_BINARY_DIR}/bin/")
 message(STATUS "Libraries will be stored in ${CMAKE_BINARY_DIR}/lib/")
 
@@ -87,17 +101,31 @@ target_include_directories(khiopsdriver_file_s3 PRIVATE ${AWSSDK_INCLUDE_DIRS}
                                                         src/contrib)
 target_link_options(khiopsdriver_file_s3 PRIVATE $<$<CONFIG:RELEASE>:-s>
 )# stripping
+#target_link_libraries(khiopsdriver_file_s3 PRIVATE ${AWSSDK_LIBRARIES}
+#                                                   ZLIB::ZLIB spdlog::spdlog)
 target_link_libraries(khiopsdriver_file_s3 PRIVATE ${AWSSDK_LIBRARIES}
-                                                   ZLIB::ZLIB spdlog::spdlog)
+                                                   spdlog::spdlog)
+
+set_target_properties(
+  khiopsdriver_file_s3
+  PROPERTIES PUBLIC_HEADER ${CMAKE_CURRENT_SOURCE_DIR}/s3plugin.h
+             SOVERSION ${PROJECT_VERSION_MAJOR}
+             VERSION ${PROJECT_VERSION})
+
+# For consistent naming across platforms
+if(WIN32)
+  set_target_properties(
+    khiopsdriver_file_s3
+    PROPERTIES # Override or add Windows-specific properties
+               RUNTIME_OUTPUT_NAME "libkhiopsdriver_file_s3" ARCHIVE_OUTPUT_NAME "libkhiopsdriver_file_s3")
+  # WINDOWS_EXPORT_ALL_SYMBOLS ON)
+endif()
 
 target_compile_options(
   khiopsdriver_file_s3
   PRIVATE
-    $<$<CXX_COMPILER_ID:MSVC>:-Wall;/wd4582;/wd4583;/wd4625;/wd4626;/wd4710;/wd4711;/wd4820;/wd4868>
+    $<$<CXX_COMPILER_ID:MSVC>:-Wall;/wd4582;/wd4583;/wd4625;/wd4626;/wd4710;/wd4711;/wd4820;/wd4868;/GR-;/Oi;/Zi>
   PRIVATE $<$<CXX_COMPILER_ID:AppleClang,Clang,GNU>:-Wall;-Wextra;-pedantic>)
-
-set_target_properties(khiopsdriver_file_s3 PROPERTIES SOVERSION ${PROJECT_VERSION_MAJOR} VERSION ${PROJECT_VERSION})
-
 
 option(BUILD_TESTS "Build test programs" OFF)
 
@@ -112,9 +140,9 @@ add_subdirectory(test)
 
 install(
   TARGETS khiopsdriver_file_s3
-  LIBRARY DESTINATION "lib"
-  ARCHIVE # lib on windows
-  RUNTIME # dll on windows
+  LIBRARY DESTINATION lib
+  ARCHIVE DESTINATION lib # lib on windows
+  RUNTIME DESTINATION lib # dll on windows
 )
 
 set(CPACK_PACKAGE_VENDOR Orange)

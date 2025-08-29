@@ -98,7 +98,11 @@ template <typename T> using HandlePtr = typename HandleContainer<T>::value_type;
 #define VISIBLE __attribute__((visibility("default")))
 #else
 /* Windows Visual C++ only */
+#ifdef S3_PLUGIN_EXPORT
 #define VISIBLE __declspec(dllexport)
+#else
+#define VISIBLE __declspec(dllimport)
+#endif
 #endif
 
 /* Use of C linkage from C++ */

@@ -2,6 +2,7 @@
 #define _CRT_SECURE_NO_WARNINGS
 #endif
 
+#define S3_PLUGIN_EXPORT
 #include "s3plugin.h"
 #include "s3plugin_internal.h"
 #include "contrib/matching.h"
