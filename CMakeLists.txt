@@ -47,7 +47,7 @@ enable_testing()
 
 # Find dependencies
 find_package(fmt CONFIG REQUIRED)
-if(NOT (BUILD_ENV STREQUAL "conda"))
+if(NOT (S3_PLUGIN_BUILD_ENV STREQUAL "conda"))
   find_package(ZLIB REQUIRED)
 endif()
 find_package(
