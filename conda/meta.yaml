@@ -11,15 +11,15 @@ build:
   number: 0
 requirements:
   build:
+    - {{ compiler('cxx') }}
     - cmake
     - ninja
-    - {{ compiler('cxx') }}
 
 files:
   - lib/libkhiopsdriver_file_s3.so* [linux]
   - lib/libkhiopsdriver_file_s3*.dylib [osx]
   - lib/*.dll [win]
-  - bin/*.dll [win]
+  - lib/*.dll [win]
 
 about:
   home: https://khiops.org

@@ -25,18 +25,17 @@
         steps:
           - name: Checkout Sources
             uses: actions/checkout@v4
-            # we need submodule for spkg 
-            # It must be set to recursive see https://github.com/microsoft/vcpkg/issues/25349#issuecomment-1162867135
             with:
-                submodules: recursive
-                fetch-depth: 0
+                submodules: true
           - name: Install Miniconda
             uses: conda-incubator/setup-miniconda@v3
             with:
               miniforge-version: latest
               python-version: '3.12'
+              conda-remove-defaults: true
           - name: Install Dependency Requirements for Building Conda Packages
             run: conda install -y conda-build
+
           # We need MacOS SDK 10.10 to build for macOS Intel
           # See: https://docs.conda.io/projects/conda-build/en/3.21.x/resources/compiler-tools.html#macos-sdk
           - name: Install Mac OS SDK 10.10
@@ -74,10 +73,8 @@
           fail-fast: false
           matrix:
             env:
-              - {os: ubuntu-20.04, os-family: linux-x64}
               - {os: ubuntu-22.04, os-family: linux-x64}
               - {os: ubuntu-24.04, os-family: linux-x64}
-              - {os: windows-2019, os-family: win-x64}
               - {os: windows-2022, os-family: win-x64}
               #- {os: macos-12, os-family: osx-64}
               #- {os: macos-13, os-family: osx-64}
@@ -145,28 +142,30 @@
           - name: Install requirement packages
             run: conda install -y anaconda-client conda-index
           - name: Reindex the package directory
-            run: python -m conda_index ./build/conda
+            run: |
+              python -m conda_index --verbose ./build/conda
           - name: Upload the packages to anaconda.org
             run: |
               # Set the anaconda.org channel
               ANACONDA_CHANNEL="${{ inputs.release-channel || 'khiops-dev' }}"
     
-              # For the release channel: upload without forcing
+              # For the release channel: upload with forcing
               if [[ "$ANACONDA_CHANNEL" == "khiops" ]]
               then
                 anaconda --token "${{ secrets.KHIOPS_ANACONDA_CHANNEL_TOKEN }}" upload \
-                  --user "$ANACONDA_CHANNEL" ./build/conda/*/*.tar.bz2
+                  --user "$ANACONDA_CHANNEL" --force ./build/conda/*/*.conda
               # For the dev channel: upload with forcing
               else
                 anaconda --token "${{ secrets.KHIOPS_DEV_ANACONDA_CHANNEL_TOKEN }}" upload \
-                  --user "$ANACONDA_CHANNEL" --force ./build/conda/*/*.tar.bz2
+                  --user "$ANACONDA_CHANNEL" --force ./build/conda/*/*.conda
               fi
           - name: Extract package version
             run: |
               PKG_VERSION=$(\
-                  conda search --override-channels --channel ./build/conda/ khiops-driver-s3 \
+                  conda search --override-channels --channel "$ANACONDA_CHANNEL" khiops-driver-s3 \
                     | awk '!/#|channels/ {print $2}' \
                     | sort -u \
+                    | tail -1 \
               )
               echo "PKG_VERSION=$PKG_VERSION" >> "$GITHUB_ENV"
           - name: Create the release zip archive
@@ -184,6 +183,7 @@
             uses: ncipollo/release-action@v1
             with:
               allowUpdates: true
+              artifacts: 'khiops-driver-s3-*.zip'
               body: |
                 **This release is for testing purposes only and there is no support for it.**
                 **Go to https://khiops.org to install the latest supported version.**
