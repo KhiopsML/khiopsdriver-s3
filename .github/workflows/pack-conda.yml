@@ -25,8 +25,11 @@
         steps:
           - name: Checkout Sources
             uses: actions/checkout@v4
+            # we need submodule for vcpkg 
+            # It must be set to recursive see https://github.com/microsoft/vcpkg/issues/25349#issuecomment-1162867135
             with:
-                submodules: true
+                submodules: recursive
+                fetch-depth: 0
           - name: Install Miniconda
             uses: conda-incubator/setup-miniconda@v3
             with:
