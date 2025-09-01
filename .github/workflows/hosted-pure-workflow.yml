@@ -75,7 +75,7 @@ jobs:
         shell: bash
 
       # Setup the build machine with the most recent versions of CMake and Ninja. Both are cached if not already: on subsequent runs both will be quickly restored from GitHub cache service.
-      - uses: lukka/get-cmake@v3.29.6
+      - uses: lukka/get-cmake@v3.30.1
 
       # Restore vcpkg from the GitHub Action cache service. Note that packages are restored by vcpkg's binary caching
       # when it is being run afterwards by CMake.
@@ -101,25 +101,26 @@ jobs:
         with:
           toolset: 14.0
 
-      - name: Build debug version and run sanitizer checks
-        if: matrix.os == 'ubuntu-latest'
-        run: |
-          sudo apt-get update
-          sudo apt-get install lcov gcovr
-          cmake --preset ninja-multi-vcpkg -DCMAKE_BUILD_TYPE=Debug
-          cmake --build --preset ninja-vcpkg-debug
-          ctest --preset test-debug --output-on-failure
-          cmake --build --preset ninja-vcpkg-debug --target khiops-s3_coverage --target khiops-s3_cobertura
+      # GCOV seems to be broken with newer versions of GCC, so we disable it for now.
+      # - name: Build debug version and run sanitizer checks
+      #   if: matrix.os == 'ubuntu-latest'
+      #   run: |
+      #     sudo apt-get update
+      #     sudo apt-get install lcov gcovr
+      #     cmake --preset ninja-multi-vcpkg -DCMAKE_BUILD_TYPE=Debug
+      #     cmake --build --preset ninja-vcpkg-debug
+      #     ctest --preset test-debug --output-on-failure
+      #     cmake --build --preset ninja-vcpkg-debug --target khiops-s3_coverage --target khiops-s3_cobertura
 
-      - name: Upload coverage results
-        uses: actions/upload-artifact@v4
-        if: matrix.os == 'ubuntu-latest'
-        with:
-          name: coverage
-          path: |
-            builds/ninja-multi-vcpkg/coverage/*
-            builds/ninja-multi-vcpkg/coverage.*
-          if-no-files-found: ignore
+      # - name: Upload coverage results
+      #   uses: actions/upload-artifact@v4
+      #   if: matrix.os == 'ubuntu-latest'
+      #   with:
+      #     name: coverage
+      #     path: |
+      #       builds/ninja-multi-vcpkg/coverage/*
+      #       builds/ninja-multi-vcpkg/coverage.*
+      #     if-no-files-found: ignore
       
       # Run CMake to generate Ninja project files, using the vcpkg's toolchain file to resolve and install
       # the dependencies as specified in vcpkg.json. Note that the vcpkg's toolchain is specified
@@ -156,5 +157,5 @@ jobs:
           path: |
             builds/ninja-multi-vcpkg/lib/*.dylib
             builds/ninja-multi-vcpkg/lib/*.so
-            builds/ninja-multi-vcpkg/bin/*.dll
+            builds/ninja-multi-vcpkg/lib/*.dll
           if-no-files-found: ignore

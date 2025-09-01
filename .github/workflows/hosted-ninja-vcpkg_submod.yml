@@ -62,7 +62,7 @@ jobs:
           submodules: true
           fetch-depth: 0
 
-      - uses: lukka/get-cmake@v3.29.6
+      - uses: lukka/get-cmake@v3.30.1
 
       - name: Restore from cache and setup vcpkg executable and data files.
         uses: lukka/run-vcpkg@v11
@@ -91,20 +91,21 @@ jobs:
           testPreset: 'test-debug'
           testPresetAdditionalArgs: "['--output-on-failure']"
 
-      - name: Generate coverage report
-        if: matrix.os == 'ubuntu-latest'
-        run: |
-          cmake --build --preset ninja-vcpkg-debug --target khiops-s3_coverage --target khiops-s3_cobertura
+      # GCOV seems to be broken with newer versions of GCC, so we disable it for now.
+      # - name: Generate coverage report
+      #   if: matrix.os == 'ubuntu-latest'
+      #   run: |
+      #     cmake --build --preset ninja-vcpkg-debug --target khiops-s3_coverage --target khiops-s3_cobertura
 
-      - name: Upload coverage results
-        uses: actions/upload-artifact@v4
-        if: matrix.os == 'ubuntu-latest'
-        with:
-          name: coverage
-          path: |
-            builds/ninja-multi-vcpkg/coverage/*
-            builds/ninja-multi-vcpkg/coverage.*
-          if-no-files-found: ignore
+      # - name: Upload coverage results
+      #   uses: actions/upload-artifact@v4
+      #   if: matrix.os == 'ubuntu-latest'
+      #   with:
+      #     name: coverage
+      #     path: |
+      #       builds/ninja-multi-vcpkg/coverage/*
+      #       builds/ninja-multi-vcpkg/coverage.*
+      #     if-no-files-found: ignore
 
       - name: Run CMake+vcpkg+Ninja+CTest to build packages and generate/build/test the code.
         uses: lukka/run-cmake@v10
@@ -124,5 +125,5 @@ jobs:
           path: |
             builds/ninja-multi-vcpkg/lib/*.dylib
             builds/ninja-multi-vcpkg/lib/*.so
-            builds/ninja-multi-vcpkg/bin/*.dll
+            builds/ninja-multi-vcpkg/lib/*.dll
           if-no-files-found: ignore
