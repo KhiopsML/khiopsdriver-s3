@@ -4,7 +4,7 @@
 set -euo pipefail
 
 # Configure project
-cmake --fresh -G Ninja -D CMAKE_BUILD_TYPE=Release -D S3_PLUGIN_BUILD_ENV=conda -D CMAKE_TOOLCHAIN_FILE=vcpkg/scripts/buildsystems/vcpkg.cmake -B builds/conda -S .
+cmake --fresh -G Ninja -D CMAKE_BUILD_TYPE=Release -D CMAKE_TOOLCHAIN_FILE=vcpkg/scripts/buildsystems/vcpkg.cmake -B builds/conda -S .
 
 # Build
 cmake --build builds/conda --target khiopsdriver_file_s3
