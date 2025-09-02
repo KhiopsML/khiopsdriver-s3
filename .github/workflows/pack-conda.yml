@@ -165,7 +165,7 @@ jobs:
       - name: Extract package version
         run: |
           PKG_VERSION=$(\
-              conda search --override-channels --channel ${{ env.$ANACONDA_CHANNEL }} khiops-driver-s3 \
+              conda search --override-channels --channel ${{ env.ANACONDA_CHANNEL }} khiops-driver-s3 \
                 | awk '!/#|channels/ {print $2}' \
                 | sort -u \
                 | tail -1 \
