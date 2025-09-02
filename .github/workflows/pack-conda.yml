@@ -139,16 +139,19 @@
             with:
               miniconda-version: latest
               python-version: '3.12'
+              conda-remove-defaults: true
           - name: Install requirement packages
             run: conda install -y anaconda-client conda-index
           - name: Reindex the package directory
             run: |
               python -m conda_index --verbose ./build/conda
           - name: Upload the packages to anaconda.org
+            id: upload
             run: |
               # Set the anaconda.org channel
               ANACONDA_CHANNEL="${{ inputs.release-channel || 'khiops-dev' }}"
-    
+              echo "ANACONDA_CHANNEL=${ANACONDA_CHANNEL}" >> $GITHUB_ENV
+
               # For the release channel: upload with forcing
               if [[ "$ANACONDA_CHANNEL" == "khiops" ]]
               then
@@ -162,7 +165,7 @@
           - name: Extract package version
             run: |
               PKG_VERSION=$(\
-                  conda search --override-channels --channel "$ANACONDA_CHANNEL" khiops-driver-s3 \
+                  conda search --override-channels --channel ${{ env.$ANACONDA_CHANNEL }} khiops-driver-s3 \
                     | awk '!/#|channels/ {print $2}' \
                     | sort -u \
                     | tail -1 \
