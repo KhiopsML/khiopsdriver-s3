@@ -25,11 +25,8 @@
         steps:
           - name: Checkout Sources
             uses: actions/checkout@v4
-            # we need submodule for vcpkg 
-            # It must be set to recursive see https://github.com/microsoft/vcpkg/issues/25349#issuecomment-1162867135
             with:
-                submodules: recursive
-                fetch-depth: 0
+                submodules: true
           - name: Install Miniconda
             uses: conda-incubator/setup-miniconda@v3
             with:
@@ -96,10 +93,10 @@
             uses: conda-incubator/setup-miniconda@v3
             with:
               miniforge-version: latest  # needed for macOS 13
-              python-version: ${{ matrix.python-version }}
+              python-version: '3.12'
               conda-remove-defaults: true
-          - name: Install the khiops-core Conda package (Windows)
-            run: conda install -c conda-forge -c khiops khiops-core
+          - name: Install the khiops-core Conda package
+            run: conda install -c khiops-dev khiops-core==10.3.0
           - name: Download Conda Package Artifact
             uses: actions/download-artifact@v4
             with:

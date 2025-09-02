@@ -9,7 +9,7 @@
 #include <aws/s3/model/GetObjectRequest.h>
 #include <aws/s3/model/GetObjectResult.h>
 
-#include <boost/process/environment.hpp>
+#include <boost/process/v1/environment.hpp>
 
 #include <boost/uuid/uuid.hpp>            // uuid class
 #include <boost/uuid/uuid_generators.hpp> // generators

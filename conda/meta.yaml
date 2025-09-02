@@ -14,6 +14,15 @@ requirements:
     - {{ compiler('cxx') }}
     - cmake
     - ninja
+  host:
+    - aws-sdk-cpp
+    - zlib
+    - libboost-devel
+    - libboost-headers
+    - fmt
+    - spdlog
+  run:
+    - aws-crt-cpp
 
 files:
   - lib/libkhiopsdriver_file_s3.so* [linux]

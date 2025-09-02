@@ -42,9 +42,14 @@ target_link_libraries(basic_test PRIVATE GTest::gtest GTest::gmock
 if (WIN32)
   target_link_libraries(basic_test PRIVATE ws2_32)
 endif()
-gtest_discover_tests(basic_test)
+
+gtest_discover_tests(basic_test 
+  PROPERTIES
+    ENVIRONMENT "LSAN_OPTIONS=suppressions=${CMAKE_SOURCE_DIR}/lsan_suppressions.txt"
+)
 
 add_executable(plugin_test plugin_test.cpp path_helper.cpp)
+target_include_directories(plugin_test PRIVATE ${${PROJECT_NAME}_SOURCE_DIR}/src)
 target_compile_options(
   plugin_test
   PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/W4;/wd4101;/wd4710;/wd4711>
