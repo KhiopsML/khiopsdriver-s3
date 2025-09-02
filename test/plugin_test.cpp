@@ -1,9 +1,10 @@
 #include <gtest/gtest.h>
 
+#include "s3plugin.h"
+#include "path_helper.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "path_helper.h"
 
 #if defined(__unix__) || defined(__unix)
 #define __is_unix__
@@ -16,10 +17,10 @@
 #endif
 
 #ifdef __unix_or_mac__
-#include <unistd.h>
 #include <dlfcn.h>
 #include <libgen.h>
 #include <limits.h>
+#include <unistd.h>
 #else
 #include <windows.h>
 #include "errhandlingapi.h"
@@ -30,7 +31,7 @@
 #elif defined(__is_mac__)
 #define LIBRARY_NAME "libkhiopsdriver_file_s3.dylib"
 #else
-#define LIBRARY_NAME "khiopsdriver_file_s3.dll"
+#define LIBRARY_NAME "libkhiopsdriver_file_s3.dll"
 #endif
 
 /* API functions definition, that must be defined in the library */
@@ -200,13 +201,21 @@ void *get_shared_library_function(void *library_handle,
     fprintf(stderr, "Unable to load %s (%s)\n", function_name, dlerror());
 #else
     fprintf(stderr, "Unable to load %s", function_name);
-    fwprintf(stderr, L"(0x%x)\n", GetLastError());
+    fwprintf(stderr, L"(0x%lx)\n", GetLastError());
 #endif
   }
   return ptr;
 }
 
-TEST(GCSPluginTest, GetScheme) {
+TEST(S3PluginTest, GetVersion) {
+  auto library_handle = init_plugin();
+
+  ASSERT_STREQ(ptr_driver_getVersion(), DRIVER_VERSION);
+
+  deinit_plugin(library_handle);
+}
+
+TEST(S3PluginTest, GetScheme) {
   auto library_handle = init_plugin();
 
   ASSERT_STREQ(ptr_driver_getScheme(), "s3");
