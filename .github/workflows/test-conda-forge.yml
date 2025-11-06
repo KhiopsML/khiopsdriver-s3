@@ -48,6 +48,10 @@
                 echo "$CONDA_PREFIX/bin" >> $GITHUB_PATH
               fi
           - run: |
+              echo "Github path ="
+              echo $GITHUB_PATH
+              echo "Path ="
+              echo $PATH
               conda info
               conda list
           - name: Checkout sources
