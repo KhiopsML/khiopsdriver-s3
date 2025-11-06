@@ -24,7 +24,7 @@ message(STATUS "Building Khiops driver version: ${DRIVER_VERSION} (CMake version
 project(
   khiops-s3
   LANGUAGES CXX
-  VERSION 0.0.13)
+  VERSION 0.0.14)
 
 # Exclude googletest from the installation and packages
 set(INSTALL_GTEST OFF)
