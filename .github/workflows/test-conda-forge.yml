@@ -43,9 +43,9 @@
             run: |
               if [[ $RUNNER_OS == "Windows" ]]
               then
-                echo $CONDA/envs/test/Library/bin >> $GITHUB_PATH
+                echo $CONDA/envs/test/Library/bin >> "$GITHUB_PATH"
               else
-                echo "$CONDA_PREFIX/bin" >> $GITHUB_PATH
+                echo "$CONDA_PREFIX/bin" >> "$GITHUB_PATH"
               fi
           - run: |
               echo "Github path ="
