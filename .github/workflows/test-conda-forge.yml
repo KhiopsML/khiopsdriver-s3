@@ -35,7 +35,6 @@
               python-version: '3.12'
               channels: conda-forge
               conda-remove-defaults: true
-              activate-environment: test
           - name: Install the khiops-core and driver Conda packages
             run: conda install -c conda-forge khiops-core==10.3.2 khiops-driver-s3
           - name: Add CONDA binary dir to PATH
@@ -46,13 +45,6 @@
               else
                 echo "$CONDA_PREFIX/bin" >> "$GITHUB_PATH"
               fi
-          - run: |
-              echo "Github path ="
-              echo $GITHUB_PATH
-              echo "Path ="
-              echo $PATH
-              conda info
-              conda list
           - name: Checkout sources
             uses: actions/checkout@v4
           - name: Test that the executables are installed
