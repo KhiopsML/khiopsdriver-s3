@@ -36,7 +36,7 @@ target_include_directories(
   PRIVATE ${${PROJECT_NAME}_SOURCE_DIR}/src/contrib)
 target_link_libraries(basic_test PRIVATE ${AWSSDK_LIBRARIES})
 
-target_link_libraries(basic_test PRIVATE GTest::gtest GTest::gmock
+target_link_libraries(basic_test PRIVATE spdlog::spdlog GTest::gtest GTest::gmock
                                          GTest::gmock_main khiopsdriver_file_s3)
 
 if (WIN32)
@@ -66,7 +66,7 @@ if(WIN32)
       $<TARGET_RUNTIME_DLLS:khiopsdriver_file_s3> $<TARGET_FILE_DIR:plugin_test>
     COMMAND_EXPAND_LISTS)
 else()
-  target_link_libraries(plugin_test PRIVATE gtest ${CMAKE_DL_LIBS}) # Link to dl
+  target_link_libraries(plugin_test PRIVATE gtest fmt::fmt ${CMAKE_DL_LIBS}) # Link to dl
 endif()
 
 gtest_discover_tests(plugin_test WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})

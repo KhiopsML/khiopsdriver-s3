@@ -457,6 +457,16 @@ ParseURIOutcome ParseS3Uri(const Aws::String& s3_uri)
 //   spdlog::critical("No bucket specified, and GCS_BUCKET_NAME is not set!");
 // }
 
+std::string ToLower(const std::string &str) {
+  std::string low{str};
+  const size_t cnt = low.length();
+  for (size_t i = 0; i < cnt; i++) {
+    low[i] = static_cast<char>(std::tolower(static_cast<unsigned char>(
+        low[i]))); // see https://en.cppreference.com/w/cpp/string/byte/tolower
+  }
+  return low;
+}
+
 Aws::String GetEnvironmentVariableOrDefault(const Aws::String& variable_name, const Aws::String& default_value)
 {
 #ifdef _WIN32
@@ -469,9 +479,21 @@ Aws::String GetEnvironmentVariableOrDefault(const Aws::String& variable_name, co
 
   if (value && std::strlen(value) > 0) {
     return value;
-  } else {
-	return default_value;
   }
+
+  const std::string low_key = ToLower(variable_name);
+  if (low_key.find("token") != std::string::npos ||
+      low_key.find("password") != std::string::npos ||
+      low_key.find("key") != std::string::npos ||
+      low_key.find("secret") != std::string::npos) {
+    spdlog::debug("No {} specified, using **REDACTED** as default.",
+                  variable_name);
+  } else {
+    spdlog::debug("No {} specified, using '{}' as default.", variable_name,
+                  default_value);
+  }
+
+  return default_value;
 }
 
 bool IsMultifile(const Aws::String& pattern, size_t& first_special_char_idx)
@@ -502,29 +524,6 @@ bool IsMultifile(const Aws::String& pattern, size_t& first_special_char_idx)
 	}
 	return false;
 }
-
-// func isMultifile(p string) int {
-// 	globalIdx := 0
-// 	for {
-// 		log.Debugln("Parse multifile pattern", p)
-// 		idxChar := strings.IndexAny(p, "*?![^")
-// 		if idxChar >= 0 {
-// 			log.Debugln("  special char", string([]rune(p)[idxChar]), "found at", globalIdx+idxChar)
-// 			globalIdx += idxChar
-// 			if idxChar > 0 && string([]rune(p)[idxChar-1]) == "\\" {
-// 				log.Debugln("  preceded by a \\, so not so special...")
-// 				p = trimLeftChars(p, idxChar+1)
-// 			} else {
-// 				log.Debugln("  not preceded by a \\, so really a special char...")
-// 				return globalIdx
-// 			}
-// 		}
-// 		if idxChar == -1 {
-// 			break
-// 		}
-// 	}
-// 	return -1
-// }
 
 Aws::S3::Model::ListObjectsV2Outcome ListObjects(const Aws::String& bucket, const Aws::String& pattern)
 {
@@ -726,6 +725,8 @@ int driver_connect()
 		{
 			return kFailure;
 		}
+	} else {
+		spdlog::debug("Configuration files searched in default location.");
 	}
 
 	// Initialize variables from environment
@@ -929,9 +930,12 @@ SizeOutcome GetOneFileSize(const Aws::String& bucket, const Aws::String& object)
 	return head_object_outcome.GetResult().GetContentLength();
 }
 
-SimpleOutcome<Aws::String> ReadHeader(const Aws::String& bucket, const S3Object& obj)
+#define KHIOPS_MAX_HEADERLENGTH 8 * 1024 * 1024
+// Khiops allows header length to be max 8MB
+SimpleOutcome<Aws::String> ReadHeader(const Aws::String& bucket, const S3Object& obj,
+	int64_t max_length = KHIOPS_MAX_HEADERLENGTH)
 {
-	auto request = MakeGetObjectRequest(bucket, obj.GetKey());
+	auto request = MakeGetObjectRequest(bucket, obj.GetKey(), MakeByteRange(0, max_length));
 	auto outcome = client->GetObject(request);
 	RETURN_OUTCOME_ON_ERROR(outcome);
 	auto result = outcome.GetResultWithOwnership();
@@ -953,8 +957,71 @@ SimpleOutcome<Aws::String> ReadHeader(const Aws::String& bucket, const S3Object&
 	return line;
 }
 
-#define KH_S3_READ_HEADER(var, bucket, obj)                                                                            \
-	const auto var##_outcome = ReadHeader((bucket), (obj));                                                        \
+// Sample a subset of objects for header detection (first, last, and some in middle)
+// Deterministic: no randomness needed (no std::rand available)
+std::set<std::string>
+SelectObjectsSubset(std::vector<std::string> const &all_objects) {
+  size_t total = all_objects.size();
+  if (total == 0)
+    return {};
+
+  size_t first_count = std::min<size_t>(5, total);
+  size_t last_count = total < 10 ? std::max<size_t>(0, total - first_count) : 5;
+
+  size_t used = first_count + last_count;
+  size_t random_count = 10; // deterministic: pick evenly spaced samples from middle
+  if (total < 20) {
+    if (total > used) {
+      random_count = total - used;
+    } else {
+      random_count = 0;
+    }
+  }
+
+  std::set<std::string> result;
+
+  // Add first elements
+  for (size_t i = 0; i < first_count; ++i) {
+    result.insert(all_objects[i]);
+  }
+
+  // Add last elements
+  if (last_count > 0) {
+    for (size_t i = total - last_count; i < total; ++i) {
+      result.insert(all_objects[i]);
+    }
+  }
+
+  // Deterministic sampling from the middle
+  std::vector<std::string> middle;
+  size_t middle_start = first_count;
+  size_t middle_end = total - last_count;
+  if (middle_start < middle_end) {
+    middle.insert(middle.end(), all_objects.begin() + middle_start, all_objects.begin() + middle_end);
+  }
+
+  if (!middle.empty() && random_count > 0) {
+    // Deterministic even-spread sampling from the middle
+    size_t middle_len = middle.size();
+    size_t samples_to_take = std::min<size_t>(random_count, middle_len);
+    for (size_t s = 0; s < samples_to_take; ++s) {
+      // spread samples evenly across the middle
+      size_t idx = (middle_len > 0) ? (s * middle_len) / samples_to_take : 0;
+      result.insert(middle[idx]);
+    }
+  }
+
+  spdlog::debug("Selected objects for header detection");
+  for (auto const &name : result) {
+    spdlog::debug(" {}", name);
+    spdlog::info(" {}", name);
+  }
+
+  return result;
+}
+
+#define KH_S3_READ_HEADER(var, bucket, obj, max_length)                                                                            \
+	const auto var##_outcome = ReadHeader((bucket), (obj), (max_length));                                                        \
 	PASS_OUTCOME_ON_ERROR(var##_outcome);                                                                          \
 	const Aws::String& var = var##_outcome.GetResult();
 
@@ -975,6 +1042,13 @@ SizeOutcome getFileSize(const Aws::String& bucket_name, const Aws::String& objec
 
 	KH_S3_EMPTY_LIST(file_list);
 
+	// build vector of filenames for sampling
+	std::vector<std::string> filenames;
+	filenames.reserve(file_list.size());
+	for (const auto& obj : file_list) {
+		filenames.push_back(obj.GetKey());
+	}
+
 	// get the size of the first file
 	const S3Object& first_file = file_list.front();
 	long long total_size = first_file.GetSize();
@@ -985,12 +1059,12 @@ SizeOutcome getFileSize(const Aws::String& bucket_name, const Aws::String& objec
 		return total_size;
 	}
 
-	// general case: more than one element
-	// read the size of the header
+	// sampling: pick representative files for header checks
+	std::set<std::string> selected = SelectObjectsSubset(filenames);
 
-	KH_S3_READ_HEADER(header, bucket_name, first_file); // !! puts header and outcome_header into scope
+	KH_S3_READ_HEADER(header, bucket_name, first_file, KHIOPS_MAX_HEADERLENGTH); // !! puts header and outcome_header into scope
 
-	const size_t header_size = header.size();
+	const long long header_size = header.size();
 
 	// scan the next files and adjust effective size if header is repeated
 	int nb_headers_to_subtract = 0;
@@ -998,26 +1072,39 @@ SizeOutcome getFileSize(const Aws::String& bucket_name, const Aws::String& objec
 
 	for (size_t i = 1; i < file_list.size(); i++)
 	{
-		const S3Object& curr_file = file_list[i];
+		const Aws::S3::Model::Object& curr_file = file_list[i];
+		const std::string &curr_key = curr_file.GetKey();
 		if (same_header)
 		{
-			KH_S3_READ_HEADER(curr_header, bucket_name,
-					  curr_file); // !! puts curr_header_outcome and curr_header into scope
+			if (selected.find(curr_key) != selected.end()) {
+				// Actually verify file contents for sampled file
+				KH_S3_READ_HEADER(curr_header, bucket_name,
+					  curr_file, header_size); // !! puts curr_header_outcome and curr_header into scope
 
-			same_header = (header == curr_header);
-			if (same_header)
-			{
-				nb_headers_to_subtract++;
+				same_header = (header == curr_header);
+				if (same_header) {
+					nb_headers_to_subtract++;
+				}
+			} else {
+				// Only check filesize
+				spdlog::debug("Skip header detect {} {} in pattern, expect min {}",
+				              curr_key, file_list[i].GetSize(), header_size);
+				same_header = (header_size <= static_cast<long long>(curr_file.GetSize()));
+				if (same_header) {
+					nb_headers_to_subtract++;
+				}
 			}
 		}
-		total_size += curr_file.GetSize();
+
+		total_size += static_cast<long long>(curr_file.GetSize());
 	}
 
 	if (!same_header)
 	{
 		nb_headers_to_subtract = 0;
 	}
-	return total_size - static_cast<long long>(nb_headers_to_subtract * header_size);
+
+	return total_size - static_cast<long long>(nb_headers_to_subtract) * header_size;
 }
 
 long long int driver_getFileSize(const char* filename)
@@ -1073,16 +1160,18 @@ SimpleOutcome<ReaderPtr> MakeReaderPtr(Aws::String bucketname, Aws::String objec
 	const auto& first_file = file_list.front();
 	filenames.front() = first_file.GetKey();
 	cumulative_size.front() = first_file.GetSize();
-	tOffset common_header_length = 0;
+
+	// sample and check headers
+	long long common_header_length = 0;
+	bool same_header = true;
 
 	if (file_count > 1)
 	{
-		bool same_header = true;
-
-		// more than one file, the headers need to be checked
-		KH_S3_READ_HEADER(header, bucketname, first_file); // !! puts header and header_outcome into scope
+		// read header of the first file
+		KH_S3_READ_HEADER(header, bucketname, first_file, KHIOPS_MAX_HEADERLENGTH); // header variable available
 		tOffset header_length = static_cast<tOffset>(header.size());
 
+		// Start building the rest of the lists
 		for (size_t i = 1; i < file_count; i++)
 		{
 			const auto& curr_file = file_list[i];
@@ -1091,10 +1180,16 @@ SimpleOutcome<ReaderPtr> MakeReaderPtr(Aws::String bucketname, Aws::String objec
 
 			if (same_header)
 			{
-				// continue checking the header of the file:
-				KH_S3_READ_HEADER(curr_header, bucketname,
-						  curr_file); // !! puts curr_header and curr_header_outcome into scope
-				same_header = (curr_header == header);
+				// Read header only for sampled files
+				if (SelectObjectsSubset(std::vector<std::string>{filenames[i]}).count(filenames[i])) {
+					// Read header for this sampled file
+					KH_S3_READ_HEADER(curr_header, bucketname,
+							  curr_file, header_length); // !! puts curr_header and curr_header_outcome into scope
+					same_header = (curr_header == header);
+				} else {
+					// Not sampled: compare by size as a proxy
+					same_header = (header_length <= static_cast<tOffset>(curr_file.GetSize()));
+				}
 			}
 		}
 
@@ -1450,7 +1545,10 @@ int driver_fseek(void* stream, long long int offset, int whence)
 const char* driver_getlasterror()
 {
 	spdlog::debug("getlasterror");
-
+	
+	if (!last_error.empty()) {
+    	return last_error.c_str();
+	}
 	return NULL;
 }
 
@@ -1773,9 +1871,6 @@ int driver_copyFromLocal(const char* sSourceFilePathName, const char* sDestFileP
 	spdlog::debug("copyFromLocal {} {}", sSourceFilePathName, sDestFilePathName);
 
 	NAMES_OR_ERROR(sDestFilePathName, kFailure);
-	// std::string bucket_name, object_name;
-	// ParseS3Uri(sDestFilePathName, bucket_name, object_name);
-	// FallbackToDefaultBucket(bucket_name);
 
 	// Configuration de la requête pour envoyer l'objet
 	Aws::S3::Model::PutObjectRequest object_request;
@@ -1793,10 +1888,10 @@ int driver_copyFromLocal(const char* sSourceFilePathName, const char* sDestFileP
 	if (!put_object_outcome.IsSuccess())
 	{
 		spdlog::error("Error during file upload: {}", put_object_outcome.GetError().GetMessage());
-		return false;
+		return kFailure;
 	}
 
-	return true;
+	return kSuccess;
 }
 
 bool test_compareFiles(const char* local_file_path_str, const char* s3_uri_str) {
