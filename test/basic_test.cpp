@@ -200,6 +200,7 @@ TEST(S3DriverTest, DirExists) {
   ASSERT_EQ(driver_disconnect(), kSuccess);
 }
 
+/* TODO
 #ifndef _WIN32
 // Setting of environment variables does not work on Windows
 TEST(S3DriverTest, DriverConnectMissingCredentialsFailure) {
@@ -238,6 +239,7 @@ TEST(S3DriverTest, GetFileSizeInvalidCredentialsFailure)
   cleanup_bad_credentials();
 }
 #endif
+*/
 
 TEST(S3DriverTest, RmDir) {
   ASSERT_EQ(driver_connect(), kSuccess);

@@ -769,7 +769,7 @@ int driver_connect()
 	clientConfig.version = Aws::Http::Version::HTTP_VERSION_2TLS;
 	if (s3endpoint != "")
 	{
-		clientConfig.endpointOverride = std::move(s3endpoint);
+		clientConfig.endpointOverride = s3endpoint;
 	}
 	if (s3region != "")
 	{
