@@ -217,11 +217,15 @@ void setup_bad_credentials() {
   outfile.close();
   auto env = boost::this_process::environment();
   env["AWS_CONFIG_FILE"] = tempCredsFile.str();
+  env["AWS_ACCESS_KEY_ID"] = std::string("AB1234CD5678EF9012GH").c_str();
+  env["AWS_SECRET_ACCESS_KEY"] = std::string("abc123dcafa65/+1765dcQMTHS").c_str();
 }
 
 void cleanup_bad_credentials() {
   auto env = boost::this_process::environment();
   env.erase("AWS_CONFIG_FILE");
+  env.erase("AWS_ACCESS_KEY_ID");
+  env.erase("AWS_SECRET_ACCESS_KEY");
 }
 
 TEST(S3DriverTest, GetFileSizeInvalidCredentialsFailure)
