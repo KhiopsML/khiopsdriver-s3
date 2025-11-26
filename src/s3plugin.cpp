@@ -13,6 +13,7 @@
 #include <aws/core/Aws.h>
 #include <aws/core/auth/AWSCredentials.h>
 #include <aws/core/auth/AWSCredentialsProvider.h>
+#include <aws/core/auth/AWSCredentialsProviderChain.h>
 #include <aws/core/utils/stream/PreallocatedStreamBuf.h>
 #include <aws/s3/S3Client.h>
 #include <aws/s3/model/AbortMultipartUploadRequest.h>
@@ -674,9 +675,9 @@ int driver_connect()
 
 	// Note: this might be useless now since AWS SDK apparently allows setting 
 	// custom endpoints now...
+	std::shared_ptr<Aws::Auth::AWSCredentialsProvider> credProvider;
 
 	// Load AWS configuration from file
-	Aws::Auth::AWSCredentials configCredentials;
 	Aws::String userHome = GetEnvironmentVariableOrDefault("HOME", "");
 	if (!userHome.empty())
 	{
@@ -701,8 +702,7 @@ int driver_connect()
 
 			const Aws::String profileSection = (profile != "default") ? "profile " + profile : profile;
 
-			Aws::Auth::ProfileConfigFileAWSCredentialsProvider provider(profile.c_str());
-			configCredentials = provider.GetAWSCredentials();
+			credProvider = Aws::MakeShared<Aws::Auth::ProfileConfigFileAWSCredentialsProvider>(profile.c_str());
 
 			mINI::INIFile file(configFile);
 			mINI::INIStructure ini;
@@ -759,14 +759,14 @@ int driver_connect()
 	// Initialisation du SDK AWS
 	Aws::InitAPI(options);
 
-	Aws::Client::ClientConfiguration clientConfig(true, "legacy", true);
+	Aws::Client::ClientConfiguration clientConfig;
 	clientConfig.allowSystemProxy = !GetEnvironmentVariableOrDefault("http_proxy", "").empty() || 
 	!GetEnvironmentVariableOrDefault("https_proxy", "").empty() ||
 		!GetEnvironmentVariableOrDefault("HTTP_PROXY", "").empty() || 
 		!GetEnvironmentVariableOrDefault("HTTPS_PROXY", "").empty() || 
 		!GetEnvironmentVariableOrDefault("S3_ALLOW_SYSTEM_PROXY", "").empty();
-	clientConfig.verifySSL = true;
-	clientConfig.version = Aws::Http::Version::HTTP_VERSION_2TLS;
+	clientConfig.scheme = Aws::Http::Scheme::HTTPS;
+
 	if (s3endpoint != "")
 	{
 		clientConfig.endpointOverride = s3endpoint;
@@ -776,14 +776,21 @@ int driver_connect()
 		clientConfig.region = s3region;
 	}
 
-	if (!s3accessKey.empty())
-	{
-		configCredentials = Aws::Auth::AWSCredentials(s3accessKey, s3secretKey);
+	// Apply timeouts
+	clientConfig.connectTimeoutMs = std::stoll(GetEnvironmentVariableOrDefault("AWS_CONNECT_TIMEOUT_MS", "10000"));
+    clientConfig.requestTimeoutMs = std::stoll(GetEnvironmentVariableOrDefault("AWS_REQUEST_TIMEOUT_MS", "30000"));
+
+	// Credentials
+	if (credProvider == nullptr) {
+		if (!s3accessKey.empty()) {
+			credProvider = Aws::MakeShared<Aws::Auth::SimpleAWSCredentialsProvider>(
+				KHIOPS_S3, s3accessKey, s3secretKey);
+		} else {
+			credProvider = Aws::MakeShared<Aws::Auth::DefaultAWSCredentialsProviderChain>(KHIOPS_S3);
+		}
 	}
 
-	client = Aws::MakeUnique<Aws::S3::S3Client>(KHIOPS_S3, configCredentials, 
-							Aws::MakeShared<Aws::S3::S3EndpointProvider>(KHIOPS_S3),
-						    clientConfig);
+	client = Aws::MakeUnique<Aws::S3::S3Client>(KHIOPS_S3, credProvider, nullptr, clientConfig);
 
 	bIsConnected = true;
 	return kSuccess;
