@@ -790,7 +790,7 @@ int driver_connect()
 		}
 	}
 
-	client = Aws::MakeUnique<Aws::S3::S3Client>(KHIOPS_S3, credProvider, nullptr, clientConfig);
+	client = Aws::MakeUnique<Aws::S3::S3Client>(KHIOPS_S3, credProvider, Aws::MakeShared<Aws::S3::S3EndpointProvider>(KHIOPS_S3), clientConfig);
 
 	bIsConnected = true;
 	return kSuccess;
