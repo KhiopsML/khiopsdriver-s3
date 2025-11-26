@@ -5,6 +5,9 @@ inputs:
   os-decription:
     description: OS description (os +arch) used to name artifacts (error reports)
     required: true
+  show-openmpi-errors:
+    description: Set to 'false' to stop displaying full OpenMPI error log
+    default: 'true'
 runs:
   using: composite
   steps:
@@ -20,8 +23,10 @@ runs:
           # Detect Debian based OS
           if [ -d "/etc/apt" ]
           then
+            apt-get update
             apt-get install -y python3 > /dev/null
           else
+            yum check-update || true
             yum install -y python3.11
           fi
         fi
@@ -44,29 +49,100 @@ runs:
           echo "KHIOPS_SCRIPT=$KHIOPS_SCRIPT" >> "$GITHUB_ENV"
           echo "KHIOPS_CC_SCRIPT=$KHIOPS_CC_SCRIPT" >> "$GITHUB_ENV"
         else
-          echo "KHIOPS_SCRIPT=khiops" >> "$GITHUB_ENV"
-          echo "KHIOPS_CC_SCRIPT=khiops_coclustering" >> "$GITHUB_ENV"
+          # Compute or get the khiops_env directory
+          if type -P khiops_env &> /dev/null
+          then
+            KHIOPS_ENV_DIR=$(dirname $(type -P khiops_env))
+          elif [[ -n "$CONDA_ENV_BIN_DIR" ]]
+          then
+            KHIOPS_ENV_DIR=$CONDA_ENV_BIN_DIR
+          else
+            echo "::error::This action expects CONDA_ENV_BIN_DIR to be defined"
+            false
+          fi
+          echo "KHIOPS_SCRIPT=$KHIOPS_ENV_DIR/khiops" >> "$GITHUB_ENV"
+          echo "KHIOPS_CC_SCRIPT=$KHIOPS_ENV_DIR/khiops_coclustering" >> "$GITHUB_ENV"
         fi
     - name: Run Khiops tests
       shell: bash
       env:
         KHIOPS_PROC_NUMBER: 4
+        # Use more processes than available CPUs: OpenMPI < 5
         OMPI_MCA_rmaps_base_oversubscribe: true
-        KHIOPS_MPI_VERBOSE: true
+        # Use more processes than available CPUs: OpenMPI >= 5
+        PRTE_MCA_rmaps_default_mapping_policy: :oversubscribe
+        KHIOPS_API_MODE: true
+        KHIOPS_MPI_VERBOSE: ${{ inputs.show-openmpi-errors }}
       run: |
         cd test/LearningTest/TestKhiops/Standard/Iris/
         "$KHIOPS_SCRIPT" -b -i test.prm -e results/err.txt
         cd -
+    - name: Run Khiops tests ($HOME not set)
+      if: runner.os == 'Linux'
+      shell: bash
+      env:
+        KHIOPS_PROC_NUMBER: 4
+        # Use more processes than available CPUs: OpenMPI < 5
+        OMPI_MCA_rmaps_base_oversubscribe: true
+        # Use more processes than available CPUs: OpenMPI >= 5
+        PRTE_MCA_rmaps_default_mapping_policy: :oversubscribe
+        KHIOPS_API_MODE: true
+        KHIOPS_MPI_VERBOSE: ${{ inputs.show-openmpi-errors }}
+      run: |
+        _HOME=$HOME
+        unset HOME
+        cd test/LearningTest/TestKhiops/Standard/Iris/
+        "$KHIOPS_SCRIPT" -b -i test.prm -e results/err.txt
+        cd -
+        export HOME=$_HOME
+        unset _HOME
+    - name: Run Khiops Coclustering tests
+      shell: bash
+      env:
+        KHIOPS_PROC_NUMBER: 4
+        # Use more processes than available CPUs: OpenMPI < 5
+        OMPI_MCA_rmaps_base_oversubscribe: true
+        # Use more processes than available CPUs: OpenMPI >= 5
+        PRTE_MCA_rmaps_default_mapping_policy: :oversubscribe
+        KHIOPS_API_MODE: true
+        KHIOPS_MPI_VERBOSE: ${{ inputs.show-openmpi-errors }}
+      run: |
+        cd test/LearningTest/TestCoclustering/Standard/Iris/
+        "$KHIOPS_CC_SCRIPT" -b -i test.prm -e results/err.txt
+        cd -
+    - name: Run Khiops Coclustering tests ($HOME not set)
+      if: runner.os == 'Linux'
+      shell: bash
+      env:
+        KHIOPS_PROC_NUMBER: 4
+        # Use more processes than available CPUs: OpenMPI < 5
+        OMPI_MCA_rmaps_base_oversubscribe: true
+        # Use more processes than available CPUs: OpenMPI >= 5
+        PRTE_MCA_rmaps_default_mapping_policy: :oversubscribe
+        KHIOPS_API_MODE: true
+        KHIOPS_MPI_VERBOSE: ${{ inputs.show-openmpi-errors }}
+      run: |
+        _HOME=$HOME
+        unset HOME
+        cd test/LearningTest/TestCoclustering/Standard/Iris/
+        "$KHIOPS_CC_SCRIPT" -b -i test.prm -e results/err.txt
+        cd -
+        export HOME=$_HOME
+        unset _HOME
     - name: Check the test results
       shell: bash
       run: |-
+        touch test/LearningTest/TestCoclustering/Standard/Iris/results/time.log
         touch test/LearningTest/TestKhiops/Standard/Iris/results/time.log
         echo "Check test results"
         cd test/LearningTestTool/py/
         $PYTHON kht_test.py ../../LearningTest/TestKhiops/Standard/Iris check
+        $PYTHON kht_test.py ../../LearningTest/TestCoclustering/Standard/Iris check
         $PYTHON kht_apply.py ../../LearningTest/TestKhiops/Standard/Iris errors | tee /tmp/khiops-log.txt
+        $PYTHON kht_apply.py ../../LearningTest/TestCoclustering/Standard/Iris errors | tee /tmp/coclustering-log.txt
         $PYTHON kht_collect_results.py ../../LearningTest/TestKhiops/Standard/Iris $GITHUB_WORKSPACE/results/khiops --collect-type warnings
-        if (grep -q error /tmp/khiops-log.txt); then
+        $PYTHON kht_collect_results.py ../../LearningTest/TestCoclustering/Standard/Iris $GITHUB_WORKSPACE/results/coclustering --collect-type warnings 
+        if (grep -q error /tmp/khiops-log.txt || grep -q error /tmp/coclustering-log.txt); then
           echo "::error::Errors in Khiops run"
           false
         fi
@@ -74,7 +150,7 @@ runs:
       if: failure()
       uses: actions/upload-artifact@v4
       with:
-        name: test-results-${{ inputs.os-decription }}
+        name: test-results-${{ inputs.os-decription}}
         retention-days: 7
         path: |-
           results/
