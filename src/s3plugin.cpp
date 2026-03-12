@@ -1892,6 +1892,11 @@ int driver_copyFromLocal(const char* sSourceFilePathName, const char* sDestFileP
 	return kSuccess;
 }
 
+int driver_concat(const char *destfilename, const char **sourcefilenames, size_t sourcefilecount) {
+	// TODO: Implement
+	return kFailure;
+}
+
 bool test_compareFiles(const char* local_file_path_str, const char* s3_uri_str) {
   std::string local_file_path(local_file_path_str);
   std::string s3_uri(s3_uri_str);

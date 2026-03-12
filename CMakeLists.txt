@@ -137,6 +137,7 @@ if(BUILD_TESTS)
 endif(BUILD_TESTS)
 
 add_subdirectory(test)
+add_subdirectory("shared/integrationtests")
 
 install(
   TARGETS khiopsdriver_file_s3
