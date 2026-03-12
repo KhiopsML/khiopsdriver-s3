@@ -178,21 +178,23 @@ Aws::S3::Model::HeadObjectRequest MakeHeadObjectRequest(const Aws::String& bucke
 	return MakeBaseRequest<Aws::S3::Model::HeadObjectRequest>(bucket, object);
 }
 
-Aws::S3::Model::GetObjectRequest MakeGetObjectRequest(const Aws::String& bucket, const Aws::String& object,
+Aws::S3::Model::GetObjectRequest MakeGetObjectRequest(const Aws::String& bucket, const Aws::String& object, const Aws::String& etag,
 						      Aws::String&& range = "")
 {
 	auto request = MakeBaseRequest<Aws::S3::Model::GetObjectRequest>(bucket, object);
-	if (!range.empty())
-	{
+	if (!range.empty()) {
 		request.SetRange(std::move(range));
+	}
+	if (!etag.empty()) {
+        request.SetIfMatch(etag);
 	}
 	return request;
 }
 
-Aws::S3::Model::GetObjectOutcome GetObject(const Aws::String& bucket, const Aws::String& object,
+Aws::S3::Model::GetObjectOutcome GetObject(const Aws::String& bucket, const Aws::String& object, const Aws::String &etag,
 					   Aws::String&& range = "")
 {
-	return client->GetObject(MakeGetObjectRequest(bucket, object, std::move(range)));
+	return client->GetObject(MakeGetObjectRequest(bucket, object, etag, std::move(range)));
 }
 
 Aws::S3::Model::HeadObjectOutcome HeadObject(const Aws::String& bucket, const Aws::String& object)
@@ -263,10 +265,10 @@ Aws::String MakeByteRange(int64_t start, int64_t end)
 
 
 SizeOutcome DownloadFileRangeToVector(const Aws::String& bucket, const Aws::String& object_name, Aws::Vector<unsigned char>& contentVector,
-					std::int64_t start_range, std::int64_t end_range)
+					std::int64_t start_range, std::int64_t end_range, const Aws::String &etag)
 {
 	// Note: AWS byte ranges are inclusive
-	auto request = MakeGetObjectRequest(bucket, object_name, MakeByteRange(start_range, end_range));
+	auto request = MakeGetObjectRequest(bucket, object_name, etag, MakeByteRange(start_range, end_range));
 	auto outcome = client->GetObject(request);
 	RETURN_OUTCOME_ON_ERROR(outcome);
 
@@ -279,10 +281,10 @@ SizeOutcome DownloadFileRangeToVector(const Aws::String& bucket, const Aws::Stri
 }
 
 SizeOutcome DownloadFileRangeToBuffer(const Aws::String& bucket, const Aws::String& object_name, unsigned char* buffer,
-				      std::int64_t start_range, std::int64_t end_range)
+				      std::int64_t start_range, std::int64_t end_range, const Aws::String &etag)
 {
 	// Note: AWS byte ranges are inclusive
-	auto request = MakeGetObjectRequest(bucket, object_name, MakeByteRange(start_range, end_range));
+	auto request = MakeGetObjectRequest(bucket, object_name, etag, MakeByteRange(start_range, end_range));
 	auto outcome = client->GetObject(request);
 	RETURN_OUTCOME_ON_ERROR(outcome);
 
@@ -325,8 +327,10 @@ SizeOutcome ReadBytesInFile(MultiPartFile& multifile, unsigned char* buffer, tOf
 
 	auto read_range_and_update = [&](const Aws::String& filename, tOffset start, tOffset end) -> SizeOutcome
 	{
+		const Aws::String& etag = multifile.etags_[idx];
+
 		auto download_outcome = DownloadFileRangeToBuffer(
-		    bucket_name, filename, buffer_pos, static_cast<int64_t>(start), static_cast<int64_t>(end));
+		    bucket_name, filename, buffer_pos, static_cast<int64_t>(start), static_cast<int64_t>(end), etag);
 		if (!download_outcome.IsSuccess())
 		{
 			offset = offset_bak;
@@ -933,7 +937,7 @@ SizeOutcome GetOneFileSize(const Aws::String& bucket, const Aws::String& object)
 SimpleOutcome<Aws::String> ReadHeader(const Aws::String& bucket, const S3Object& obj,
 	int64_t max_length = KHIOPS_MAX_HEADERLENGTH)
 {
-	auto request = MakeGetObjectRequest(bucket, obj.GetKey(), MakeByteRange(0, max_length));
+	auto request = MakeGetObjectRequest(bucket, obj.GetKey(), obj.GetETag(), MakeByteRange(0, max_length));
 	auto outcome = client->GetObject(request);
 	RETURN_OUTCOME_ON_ERROR(outcome);
 	auto result = outcome.GetResultWithOwnership();
@@ -1125,16 +1129,19 @@ SimpleOutcome<ReaderPtr> MakeReaderPtr(Aws::String bucketname, Aws::String objec
 	size_t pattern_1st_sp_char_pos = 0;
 	if (!IsMultifile(objectname, pattern_1st_sp_char_pos))
 	{
-		// create a Multifile with a single file
-		const auto size_outcome = GetOneFileSize(bucketname, objectname);
-		PASS_OUTCOME_ON_ERROR(size_outcome);
-		const long long size = size_outcome.GetResult();
+		auto head_outcome = HeadObject(bucketname, objectname);
+		RETURN_OUTCOME_ON_ERROR(head_outcome);
+
+		const auto& head = head_outcome.GetResult();
+		long long size = head.GetContentLength();
+		Aws::String etag = head.GetETag();
 
 		Aws::Vector<Aws::String> objectnames(1, objectname);
 		Aws::Vector<tOffset> sizes(1, size);
+		Aws::Vector<Aws::String> etags(1, etag);
 
 		return Aws::MakeUnique<Reader>(KHIOPS_S3, std::move(bucketname), std::move(objectname), 0, 0,
-					       std::move(objectnames), std::move(sizes));
+					       std::move(objectnames), std::move(sizes), std::move(etags));
 	}
 
 	// this is a multifile. the reader object needs the list of filenames matching the globbing pattern and their
@@ -1153,11 +1160,13 @@ SimpleOutcome<ReaderPtr> MakeReaderPtr(Aws::String bucketname, Aws::String objec
 	const size_t file_count = file_list.size();
 	Aws::Vector<Aws::String> filenames(file_count);
 	Aws::Vector<long long> cumulative_size(file_count);
+	Aws::Vector<Aws::String> etags(file_count);
 
 	// get metadata from the first file
 	const auto& first_file = file_list.front();
 	filenames.front() = first_file.GetKey();
 	cumulative_size.front() = first_file.GetSize();
+	etags.front() = first_file.GetETag();
 
 	// sample and check headers
 	long long common_header_length = 0;
@@ -1175,6 +1184,7 @@ SimpleOutcome<ReaderPtr> MakeReaderPtr(Aws::String bucketname, Aws::String objec
 			const auto& curr_file = file_list[i];
 			filenames[i] = curr_file.GetKey();
 			cumulative_size[i] = cumulative_size[i - 1] + curr_file.GetSize();
+			etags[i] = curr_file.GetETag();
 
 			if (same_header)
 			{
@@ -1204,7 +1214,7 @@ SimpleOutcome<ReaderPtr> MakeReaderPtr(Aws::String bucketname, Aws::String objec
 
 	// construct the result
 	return Aws::MakeUnique<Reader>(KHIOPS_S3, std::move(bucketname), std::move(objectname), 0,
-				       common_header_length, std::move(filenames), std::move(cumulative_size));
+				       common_header_length, std::move(filenames), std::move(cumulative_size), std::move(etags));
 }
 
 SimpleOutcome<WriterPtr> MakeWriterPtr(Aws::String bucket, Aws::String object)
@@ -1321,10 +1331,15 @@ UploadOutcome InitiateAppend(Writer& writer, size_t source_bytes_to_copy)
 	if (source_bytes_to_copy > 0)
 	{
 		writer.buffer_.reserve(source_bytes_to_copy);
+		auto head_outcome = HeadObject(multipartupload_data.GetBucket(),
+									multipartupload_data.GetKey());
+		RETURN_OUTCOME_ON_ERROR(head_outcome);
+
+		Aws::String etag = head_outcome.GetResult().GetETag();
 		// reminder: byte ranges are inclusive
 		auto outcome = DownloadFileRangeToVector(multipartupload_data.GetBucket(),
 							 multipartupload_data.GetKey(), writer.buffer_,
-							 start_range, start_range + static_cast<int64_t>(source_bytes_to_copy) - 1);
+							 start_range, start_range + static_cast<int64_t>(source_bytes_to_copy) - 1, etag);
 		PASS_OUTCOME_ON_ERROR(outcome);
 
 		tOffset actual_read = outcome.GetResult();
@@ -1802,11 +1817,13 @@ int driver_copyToLocal(const char* sSourceFilePathName, const char* sDestFilePat
 		long long start = 0 == part ? 0 : header_size;
 		long long end = std::min(start + dl_limit - 1, end_limit);
 
+		const Aws::String etag = (part < from.etags_.size()) ? from.etags_[part] : Aws::String{};
+
 		//download by pieces
 		while (to_file && start < end_limit)
 		{
 			const auto request =
-			    MakeGetObjectRequest(from.bucketname_, from.filenames_[part], MakeByteRange(start, end));
+			    MakeGetObjectRequest(from.bucketname_, from.filenames_[part], etag, MakeByteRange(start, end));
 			auto get_outcome = client->GetObject(request);
 			RETURN_ON_ERROR(get_outcome, "Error while downloading file content", false);
 
@@ -1893,8 +1910,107 @@ int driver_copyFromLocal(const char* sSourceFilePathName, const char* sDestFileP
 }
 
 int driver_concat(const char *destfilename, const char **sourcefilenames, size_t sourcefilecount) {
-	// TODO: Implement
-	return kFailure;
+    KH_S3_NOT_CONNECTED(kFailure);
+    ERROR_ON_NULL_ARG(destfilename, kFailure);
+    ERROR_ON_NULL_ARG(sourcefilenames, kFailure);
+
+    if (sourcefilecount == 0)
+    {
+        LogError("driver_concat: no source files");
+        return kFailure;
+    }
+
+    NAMES_OR_ERROR(destfilename, kFailure);
+
+    size_t sp = 0;
+    if (IsMultifile(names.object_, sp))
+    {
+        LogError("driver_concat: destination must be a single object");
+        return kFailure;
+    }
+
+    struct Src { Aws::String bucket; Aws::String key; long long size; };
+    Aws::Vector<Src> srcs;
+    srcs.reserve(sourcefilecount);
+
+    for (size_t i = 0; i < sourcefilecount; ++i)
+    {
+        ERROR_ON_NULL_ARG(sourcefilenames[i], kFailure);
+        auto parsed = ParseS3Uri(sourcefilenames[i]);
+        RETURN_ON_ERROR(parsed, "Error parsing source URI", kFailure);
+
+        const auto& s = parsed.GetResult();
+        if (s.bucket_ != names.bucket_)
+        {
+            LogError("driver_concat: sources must be in same bucket as destination");
+            return kFailure;
+        }
+
+        auto size_outcome = GetOneFileSize(s.bucket_, s.object_);
+        RETURN_ON_ERROR(size_outcome, "Error getting source size", kFailure);
+
+        srcs.push_back({s.bucket_, s.object_, size_outcome.GetResult()});
+    }
+
+    auto writer_outcome = MakeWriterPtr(names.bucket_, names.object_);
+    RETURN_ON_ERROR(writer_outcome, "Error creating multipart upload", kFailure);
+    auto writer = std::move(writer_outcome.GetResultWithOwnership());
+
+    auto abort_upload = [&]() {
+        client->AbortMultipartUpload(
+            MakeBaseUploadRequest<Aws::S3::Model::AbortMultipartUploadRequest>(*writer));
+    };
+
+    constexpr long long MIN_PART = static_cast<long long>(Writer::buff_min_); // 5 MiB
+    constexpr long long MAX_TOTAL = static_cast<long long>(Writer::buff_max_); // 5 GiB
+
+    for (size_t i = 0; i < srcs.size(); ++i)
+    {
+        const auto& src = srcs[i];
+        if (src.size == 0) continue;
+
+        long long offset = 0;
+        while (offset < src.size)
+        {
+            long long remain = src.size - offset;
+            long long part = std::min(remain, MAX_TOTAL);
+
+            bool is_last_part =
+                (i == srcs.size() - 1) && (offset + part == src.size);
+
+            if (part < MIN_PART && !is_last_part)
+            {
+                LogError("driver_concat: part < 5MB not allowed except for last part");
+                abort_upload();
+                return kFailure;
+            }
+
+            // CopySource format: "bucket/key" (URL-encoded si besoin)
+            writer->append_target_ = src.bucket + "/" + src.key;
+
+            auto outcome = UploadPartCopy(*writer,
+                                          MakeByteRange(offset, offset + part - 1));
+            if (!outcome.IsSuccess())
+            {
+                LogBadOutcome(outcome, "Error during UploadPartCopy");
+                abort_upload();
+                return kFailure;
+            }
+
+            offset += part;
+        }
+    }
+
+    auto complete = client->CompleteMultipartUpload(
+        MakeCompleteMultipartUploadRequest(*writer));
+    if (!complete.IsSuccess())
+    {
+        LogBadOutcome(complete, "Error completing concat");
+        abort_upload();
+        return kFailure;
+    }
+
+    return kSuccess;
 }
 
 bool test_compareFiles(const char* local_file_path_str, const char* s3_uri_str) {

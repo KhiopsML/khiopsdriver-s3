@@ -31,14 +31,15 @@ struct MultiPartFile
 	tOffset common_header_length_{0};
 	Aws::Vector<Aws::String> filenames_;
 	Aws::Vector<tOffset> cumulative_sizes_;
+	Aws::Vector<Aws::String> etags_;
 	tOffset total_size_{0};
 
 	MultiPartFile() = default;
 	explicit MultiPartFile(Aws::String bucket, Aws::String filename, tOffset offset, tOffset common_header_length,
-			       Aws::Vector<Aws::String> filenames, Aws::Vector<tOffset> cumulative_sizes)
+			       Aws::Vector<Aws::String> filenames, Aws::Vector<tOffset> cumulative_sizes, Aws::Vector<Aws::String> etags)
 	    : bucketname_{std::move(bucket)}, filename_{std::move(filename)}, offset_{offset},
 	      common_header_length_{common_header_length}, filenames_{std::move(filenames)},
-	      cumulative_sizes_{std::move(cumulative_sizes)}, total_size_{cumulative_sizes_.back()}
+	      cumulative_sizes_{std::move(cumulative_sizes)}, etags_{std::move(etags)}, total_size_{cumulative_sizes_.back()}
 	{
 	}
 };

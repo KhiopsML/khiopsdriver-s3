@@ -276,6 +276,7 @@ template <typename T> T MakeOutcomeError() { return S3Error{}; }
 HeadObjectOutcome MakeHeadObjectOutcome(long long value) {
   HeadObjectResult res;
   res.SetContentLength(value);
+  res.SetETag("\"etag-1\"");
   return res;
 }
 
@@ -290,17 +291,12 @@ ListObjectsV2Outcome MakeListObjectOutcome(Aws::Vector<Object> &&v,
 // Note: the strings inside keys will be moved from
 Aws::Vector<Object> MakeObjectVector(Aws::Vector<Aws::String> &&keys,
                                      Aws::Vector<long long> &&sizes) {
-  const size_t key_count = keys.size();
-  Aws::Vector<Object> res(key_count);
-  for (size_t i = 0; i < key_count; i++) {
+  Aws::Vector<Object> res(keys.size());
+  for (size_t i=0; i<keys.size(); ++i) {
     res[i].SetKey(std::move(keys[i]));
+    if (i < sizes.size()) res[i].SetSize(sizes[i]);
+    res[i].SetETag("\"etag-1\"");
   }
-
-  const size_t to_add = std::min(key_count, sizes.size());
-  for (size_t i = 0; i < to_add; i++) {
-    res[i].SetSize(sizes[i]);
-  }
-
   return res;
 }
 
