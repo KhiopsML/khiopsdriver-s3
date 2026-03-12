@@ -113,13 +113,12 @@ jobs:
         uses: lukka/run-cmake@v10
         env:
           S3_DRIVER_LOGLEVEL: debug
+          STORAGE_DRIVER_TEST_URL_PREFIX: s3://diod-data-di-jupyterhub
         with:
           configurePreset: 'ninja-rel'
           configurePresetAdditionalArgs: '["-DBUILD_TESTS=ON"]'
           buildPreset: 'ninja-rel'
           testPreset: 'ninja-rel'
-        env:
-          STORAGE_DRIVER_TEST_URL_PREFIX: s3://diod-data-di-jupyterhub
   
       - name: Upload the packages as artifacts
         uses: actions/upload-artifact@v4
