@@ -129,7 +129,7 @@ jobs:
       # store the built packages artifacts.
       - name: Restore from cache the dependencies and generate project files
         run: |
-          cmake --preset ninja-multi-vcpkg -DCMAKE_BUILD_TYPE=Release
+          cmake --preset ninja-rel -DBUILD_TESTS=ON
 
       # Build (Release configuration only) the whole project with Ninja (which is spawn by CMake).
       #
@@ -138,7 +138,7 @@ jobs:
       # run: cmake --build --preset ninja-vcpkg --config Release
       - name: Build (Release configuration)
         run: |
-          cmake --build --preset ninja-vcpkg-release
+          cmake --build --preset ninja-rel
 
       #- name: Run single test (with logs)
       #  run: |
@@ -147,7 +147,7 @@ jobs:
       # Test the whole project with CTest, again Release configuration only.
       - name: Test (Release configuration)
         run: |
-          ctest --preset test-release --output-on-failure
+          ctest --preset ninja-rel
 
 
       - name: Upload the packages as artifacts

@@ -85,11 +85,10 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         uses: lukka/run-cmake@v10
         with:
-          configurePreset: 'ninja-multi-vcpkg'
-          configurePresetAdditionalArgs: "['-DCMAKE_BUILD_TYPE=Debug']"
-          buildPreset: 'ninja-vcpkg-debug'
-          testPreset: 'test-debug'
-          testPresetAdditionalArgs: "['--output-on-failure']"
+          configurePreset: 'ninja-dbg'
+          configurePresetAdditionalArgs: '["-DBUILD_TESTS=ON"]'
+          buildPreset: 'ninja-dbg'
+          testPreset: 'ninja-dbg'
 
       # GCOV seems to be broken with newer versions of GCC, so we disable it for now.
       # - name: Generate coverage report
@@ -112,11 +111,10 @@ jobs:
         env:
           S3_DRIVER_LOGLEVEL: debug
         with:
-          configurePreset: 'ninja-multi-vcpkg'
-          configurePresetAdditionalArgs: "['-DCMAKE_BUILD_TYPE=Release']"
-          buildPreset: 'ninja-vcpkg-release'
-          testPreset: 'test-release'
-          testPresetAdditionalArgs: "['--output-on-failure']"
+          configurePreset: 'ninja-rel'
+          configurePresetAdditionalArgs: '["-DBUILD_TESTS=ON"]'
+          buildPreset: 'ninja-rel'
+          testPreset: 'ninja-rel'
   
       - name: Upload the packages as artifacts
         uses: actions/upload-artifact@v4
