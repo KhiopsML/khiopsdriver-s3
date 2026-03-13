@@ -55,7 +55,6 @@ jobs:
       AWS_ENDPOINT_URL: ${{ vars.AWS_ENDPOINT_URL }}
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-      STORAGE_DRIVER_NAME: S3
       
     steps:
       - uses: actions/checkout@v4

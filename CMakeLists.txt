@@ -134,10 +134,11 @@ if(BUILD_TESTS)
   target_link_libraries(KhiopsPluginTest PRIVATE fmt::fmt ${CMAKE_DL_LIBS})
   add_executable(drivertest src/drivertest.cpp)
   target_link_libraries(drivertest ${CMAKE_DL_LIBS}) # Link to dl
+  
+  add_subdirectory(test)
+  set(storage_driver_target_name khiopsdriver_file_s3)
+  add_subdirectory("shared/integrationtests")
 endif(BUILD_TESTS)
-
-add_subdirectory(test)
-add_subdirectory("shared/integrationtests")
 
 install(
   TARGETS khiopsdriver_file_s3
