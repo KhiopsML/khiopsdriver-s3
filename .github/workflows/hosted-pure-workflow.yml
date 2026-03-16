@@ -32,6 +32,9 @@ jobs:
           - {os: macos-15-intel, triplet: x64-osx}
           - {os: macos-14, triplet: arm64-osx}
           - {os: windows-latest, triplet: x64-windows}
+    defaults:
+      run:
+        shell: bash
     permissions:
       contents: 'read'
       id-token: 'write'
@@ -69,7 +72,6 @@ jobs:
           
       - name: "Create directory '${{ env.VCPKG_DEFAULT_BINARY_CACHE }}'"
         run: mkdir -p $VCPKG_DEFAULT_BINARY_CACHE
-        shell: bash
 
       # Setup the build machine with the most recent versions of CMake and Ninja. Both are cached if not already: on subsequent runs both will be quickly restored from GitHub cache service.
       - uses: lukka/get-cmake@v3.30.1
