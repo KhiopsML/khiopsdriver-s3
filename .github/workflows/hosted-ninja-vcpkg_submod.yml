@@ -30,16 +30,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-13, macos-14, windows-latest]
         include:
-          - os: windows-latest
-            triplet: x64-windows
-          - os: ubuntu-latest
-            triplet: x64-linux
-          - os: macos-13
-            triplet: x64-osx
-          - os: macos-14
-            triplet: arm64-osx
+          - {os: ubuntu-latest, triplet: x64-linux}
+          - {os: macos-latest, triplet: arm64-osx}
+          - {os: macos-15-intel, triplet: x64-osx}
+          - {os: macos-14, triplet: arm64-osx}
+          - {os: windows-latest, triplet: x64-windows}
     permissions:
       contents: 'read'
       id-token: 'write'
