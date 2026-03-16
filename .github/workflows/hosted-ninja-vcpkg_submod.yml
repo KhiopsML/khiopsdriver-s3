@@ -51,6 +51,7 @@ jobs:
       AWS_ENDPOINT_URL: ${{ vars.AWS_ENDPOINT_URL }}
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      STORAGE_DRIVER_TEST_URL_PREFIX: s3://diod-data-di-jupyterhub
       
     steps:
       - uses: actions/checkout@v4
@@ -85,8 +86,6 @@ jobs:
           configurePresetAdditionalArgs: '["-DBUILD_TESTS=ON"]'
           buildPreset: 'ninja-dbg'
           testPreset: 'ninja-dbg'
-        env:
-          STORAGE_DRIVER_TEST_URL_PREFIX: s3://diod-data-di-jupyterhub
 
       # GCOV seems to be broken with newer versions of GCC, so we disable it for now.
       # - name: Generate coverage report
@@ -108,7 +107,6 @@ jobs:
         uses: lukka/run-cmake@v10
         env:
           S3_DRIVER_LOGLEVEL: debug
-          STORAGE_DRIVER_TEST_URL_PREFIX: s3://diod-data-di-jupyterhub
         with:
           configurePreset: 'ninja-rel'
           configurePresetAdditionalArgs: '["-DBUILD_TESTS=ON"]'
