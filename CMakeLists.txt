@@ -137,6 +137,9 @@ if(BUILD_TESTS)
   
   add_subdirectory(test)
   set(storage_driver_target_name khiopsdriver_file_s3)
+  if(NOT DEFINED ENV{STORAGE_DRIVER_TEST_URL_PREFIX})
+    set(ENV{STORAGE_DRIVER_TEST_URL_PREFIX} "s3://diod-data-di-jupyterhub")
+  endif()
   add_subdirectory("shared/integrationtests")
 endif(BUILD_TESTS)
 
