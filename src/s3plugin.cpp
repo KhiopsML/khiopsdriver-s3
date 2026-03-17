@@ -302,6 +302,33 @@ SizeOutcome DownloadFileRangeToBuffer(const Aws::String& bucket, const Aws::Stri
 	return stream.gcount();
 }
 
+SizeOutcome CheckEtagOnly(const MultiPartFile& mf, size_t idx)
+{
+	if (idx >= mf.filenames_.size() || idx >= mf.etags_.size()) {
+		return MakeSimpleError(Aws::S3::S3Errors::INTERNAL_FAILURE,
+							"Invalid multipart index for ETag check.");
+	}
+
+    Aws::S3::Model::HeadObjectRequest req;
+    req.SetBucket(mf.bucketname_);
+    req.SetKey(mf.filenames_[idx]);
+    req.SetIfMatch(mf.etags_[idx]);
+
+    auto outcome = client->HeadObject(req);
+    if (!outcome.IsSuccess()) {
+		const auto& err = outcome.GetError();
+
+		if (err.GetErrorType() == Aws::S3::S3Errors::INTERNAL_FAILURE) {
+			return MakeSimpleError(err.GetErrorType(),
+								"The file has been updated while reading it.");
+		}
+
+		return MakeSimpleError(err.GetErrorType(), err.GetMessage().c_str());
+	}
+
+    return tOffset{0};
+}
+
 SizeOutcome ReadBytesInFile(MultiPartFile& multifile, unsigned char* buffer, tOffset to_read)
 {
 	// Start at first usable file chunk
@@ -323,6 +350,23 @@ SizeOutcome ReadBytesInFile(MultiPartFile& multifile, unsigned char* buffer, tOf
 	if (filenames.empty() || cumul_sizes.empty()) {
 		return MakeSimpleError(Aws::S3::S3Errors::INTERNAL_FAILURE, "Cannot read from an empty multipart file.");
 	}
+
+	const tOffset total_size = cumul_sizes.back();
+
+	if (offset >= total_size) {
+		auto etag_check = CheckEtagOnly(multifile, cumul_sizes.size() - 1);
+		if (!etag_check.IsSuccess()) {
+			return etag_check.GetError();
+		}
+
+		if (to_read == 0) {
+			return tOffset{0};
+		}
+
+		return MakeSimpleError(Aws::S3::S3Errors::INTERNAL_FAILURE,
+							"Cannot read after end of file.");
+	}
+
 
 	auto greater_than_offset_it = std::upper_bound(cumul_sizes.begin(), cumul_sizes.end(), offset);
 	size_t idx = static_cast<size_t>(std::distance(cumul_sizes.begin(), greater_than_offset_it));
@@ -364,7 +408,7 @@ SizeOutcome ReadBytesInFile(MultiPartFile& multifile, unsigned char* buffer, tOf
 		buffer_pos += actual_read;
 		offset += actual_read;
 
-		if (actual_read < (end - start) /*expected read*/)
+		if (actual_read < (end - start + 1) /*expected read*/)
 		{
 			spdlog::debug("End of file encountered");
 			to_read = 0;
@@ -382,6 +426,10 @@ SizeOutcome ReadBytesInFile(MultiPartFile& multifile, unsigned char* buffer, tOf
 	// AWS peculiarity: byte ranges are inclusive
 	const tOffset file_start = (idx == 0) ? offset : offset - cumul_sizes[idx - 1] + common_header_length;
 	const tOffset read_end = std::min(file_start + to_read, file_start + cumul_sizes[idx] - offset) - 1;
+	if (read_end < file_start) {
+		return tOffset{0};
+	}
+
 
 	SizeOutcome read_outcome = read_range_and_update(filenames[idx], file_start, read_end);
 
@@ -389,9 +437,18 @@ SizeOutcome ReadBytesInFile(MultiPartFile& multifile, unsigned char* buffer, tOf
 	while (read_outcome.IsSuccess() && to_read)
 	{
 		// read the missing bytes in the next files as necessary
+		if (idx + 1 >= cumul_sizes.size()) {
+			to_read = 0;
+			break;
+		}
 		idx++;
 		const tOffset start = common_header_length;
 		const tOffset end = std::min(start + to_read, start + cumul_sizes[idx] - cumul_sizes[idx - 1]) - 1;
+		if (end < start) {
+			to_read = 0;
+			break;
+		}
+
 
 		read_outcome = read_range_and_update(filenames[idx], start, end);
 	}
