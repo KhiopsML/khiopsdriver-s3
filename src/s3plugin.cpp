@@ -1988,6 +1988,24 @@ int driver_copyFromLocal(const char* sSourceFilePathName, const char* sDestFileP
 	return kSuccess;
 }
 
+/**
+ * @brief Concatenate S3 objects into a destination object using multipart upload.
+ *
+ * This implementation optimizes for server-side operations:
+ *  - UploadPartCopy is used whenever possible (ranges >= 5 MiB, <= 5 GiB).
+ *  - Small sources (< 5 MiB) and small tails are aggregated locally into a buffer and
+ *    uploaded as a part once the buffer reaches >= 5 MiB.
+ *  - The final part may be < 5 MiB.
+ *
+ * Explicit handling of the 10,000-part limit:
+ *  - We estimate an upper bound on parts for a set of sources and split the work into
+ *    multi-stage server-side concatenations if needed.
+ *  - Each stage produces an intermediate object (except the final stage).
+ *  - Intermediate objects are concatenated again until the final object can be built
+ *    within the 10,000-part limit.
+ *
+ * On success, all source objects are deleted (destination is never deleted).
+ */
 int driver_concat(const char *destfilename, const char **sourcefilenames, size_t sourcefilecount) {
     KH_S3_NOT_CONNECTED(kFailure);
     ERROR_ON_NULL_ARG(destfilename, kFailure);
@@ -2008,9 +2026,21 @@ int driver_concat(const char *destfilename, const char **sourcefilenames, size_t
         return kFailure;
     }
 
-    struct Src { Aws::String bucket; Aws::String key; long long size; };
+    constexpr long long MIN_PART = static_cast<long long>(Writer::buff_min_); // 5 MiB
+    constexpr long long MAX_PART = static_cast<long long>(Writer::buff_max_); // 5 GiB
+    constexpr long long MAX_PARTS = 10000;
+
+    struct Src { Aws::String bucket; Aws::String key; long long size; Aws::String etag; };
+
     Aws::Vector<Src> srcs;
     srcs.reserve(sourcefilecount);
+
+    long long total_size = 0;
+
+    spdlog::info("driver_concat: dest={}, source count={}", destfilename, sourcefilecount);
+
+    // Track unique source keys to delete on success
+    std::set<Aws::String> sources_to_delete;
 
     for (size_t i = 0; i < sourcefilecount; ++i)
     {
@@ -2025,71 +2055,473 @@ int driver_concat(const char *destfilename, const char **sourcefilenames, size_t
             return kFailure;
         }
 
-        auto size_outcome = GetOneFileSize(s.bucket_, s.object_);
-        RETURN_ON_ERROR(size_outcome, "Error getting source size", kFailure);
+        auto head_outcome = HeadObject(s.bucket_, s.object_);
+        RETURN_ON_ERROR(head_outcome, "Error getting source metadata", kFailure);
 
-        srcs.push_back({s.bucket_, s.object_, size_outcome.GetResult()});
-    }
+        const auto& head = head_outcome.GetResult();
+        long long size = head.GetContentLength();
+        Aws::String etag = head.GetETag();
 
-    auto writer_outcome = MakeWriterPtr(names.bucket_, names.object_);
-    RETURN_ON_ERROR(writer_outcome, "Error creating multipart upload", kFailure);
-    auto writer = std::move(writer_outcome.GetResultWithOwnership());
-
-    auto abort_upload = [&]() {
-        client->AbortMultipartUpload(
-            MakeBaseUploadRequest<Aws::S3::Model::AbortMultipartUploadRequest>(*writer));
-    };
-
-    constexpr long long MIN_PART = static_cast<long long>(Writer::buff_min_); // 5 MiB
-    constexpr long long MAX_TOTAL = static_cast<long long>(Writer::buff_max_); // 5 GiB
-
-    for (size_t i = 0; i < srcs.size(); ++i)
-    {
-        const auto& src = srcs[i];
-        if (src.size == 0) continue;
-
-        long long offset = 0;
-        while (offset < src.size)
+        if (size > 0 && total_size > std::numeric_limits<long long>::max() - size)
         {
-            long long remain = src.size - offset;
-            long long part = std::min(remain, MAX_TOTAL);
+            LogError("driver_concat: total size overflow");
+            return kFailure;
+        }
+        total_size += size;
 
-            bool is_last_part =
-                (i == srcs.size() - 1) && (offset + part == src.size);
+        spdlog::debug("driver_concat: source {} -> size={}", s.object_, size);
 
-            if (part < MIN_PART && !is_last_part)
-            {
-                LogError("driver_concat: part < 5MiB not allowed except for last part");
-                abort_upload();
-                return kFailure;
-            }
+        srcs.push_back({s.bucket_, s.object_, size, etag});
 
-            // CopySource format: "bucket/key" (URL-encoded si besoin)
-            writer->append_target_ = src.bucket + "/" + src.key;
-
-            auto outcome = UploadPartCopy(*writer,
-                                          MakeByteRange(offset, offset + part - 1));
-            if (!outcome.IsSuccess())
-            {
-                LogBadOutcome(outcome, "Error during UploadPartCopy");
-                abort_upload();
-                return kFailure;
-            }
-
-            offset += part;
+        if (!(s.bucket_ == names.bucket_ && s.object_ == names.object_))
+        {
+            sources_to_delete.insert(s.object_);
+        }
+        else
+        {
+            spdlog::warn("driver_concat: source equals destination ({}), will not delete it",
+                         s.object_);
         }
     }
 
-    auto complete = client->CompleteMultipartUpload(
-        MakeCompleteMultipartUploadRequest(*writer));
-    if (!complete.IsSuccess())
+    // If everything is empty, create an empty destination object.
+    if (total_size == 0)
     {
-        LogBadOutcome(complete, "Error completing concat");
-        abort_upload();
-        return kFailure;
+        spdlog::info("driver_concat: all sources empty, creating empty destination object");
+        Aws::S3::Model::PutObjectRequest req;
+        req.WithBucket(names.bucket_).WithKey(names.object_);
+        auto empty_body = Aws::MakeShared<Aws::StringStream>(KHIOPS_S3);
+        req.SetBody(empty_body);
+
+        auto put_outcome = client->PutObject(req);
+        if (!put_outcome.IsSuccess())
+        {
+            LogBadOutcome(put_outcome, "Error creating empty object");
+            return kFailure;
+        }
+
+        // Delete sources even if empty
+        bool delete_ok = true;
+        for (const auto& k : sources_to_delete)
+        {
+            Aws::S3::Model::DeleteObjectRequest del;
+            del.WithBucket(names.bucket_).WithKey(k);
+            auto del_outcome = client->DeleteObject(del);
+            if (!del_outcome.IsSuccess())
+            {
+                delete_ok = false;
+                spdlog::error("driver_concat: failed to delete source {}: {}",
+                              k, del_outcome.GetError().GetMessage());
+            }
+            else
+            {
+                spdlog::debug("driver_concat: deleted source {}", k);
+            }
+        }
+
+        return delete_ok ? kSuccess : kFailure;
     }
 
-    return kSuccess;
+    auto estimate_parts = [&](const Src& s) -> long long {
+        if (s.size == 0) return 0;
+        if (s.size <= MAX_PART) return 1;
+        return (s.size + MAX_PART - 1) / MAX_PART;
+    };
+
+    auto make_temp_key = [&](int level, int group) -> Aws::String {
+        Aws::StringStream ss;
+        ss << names.object_ << ".concat_tmp_L" << level << "_G" << group << "_" << std::rand();
+        return ss.str().c_str();
+    };
+
+    auto cleanup_temps = [&](const Aws::Vector<Aws::String>& keys) {
+        for (const auto& k : keys)
+        {
+            Aws::S3::Model::DeleteObjectRequest req;
+            req.WithBucket(names.bucket_).WithKey(k);
+            auto del_outcome = client->DeleteObject(req);
+            if (!del_outcome.IsSuccess())
+            {
+                spdlog::warn("driver_concat: failed to delete temp object {}: {}",
+                             k, del_outcome.GetError().GetMessage());
+            }
+            else
+            {
+                spdlog::debug("driver_concat: deleted temp object {}", k);
+            }
+        }
+    };
+
+    auto concat_stage = [&](const Aws::Vector<Src>& inputs,
+                            const Aws::String& dest_key,
+                            int level,
+                            int group_idx) -> bool
+    {
+        spdlog::info("concat_stage: level={}, group={}, dest={}, sources={}",
+                     level, group_idx, dest_key, inputs.size());
+
+        auto writer_outcome = MakeWriterPtr(names.bucket_, dest_key);
+        if (!writer_outcome.IsSuccess())
+        {
+            LogBadOutcome(writer_outcome, "Error creating multipart upload");
+            return false;
+        }
+        auto writer = std::move(writer_outcome.GetResultWithOwnership());
+
+        auto abort_upload = [&]() {
+            client->AbortMultipartUpload(
+                MakeBaseUploadRequest<Aws::S3::Model::AbortMultipartUploadRequest>(*writer));
+        };
+
+        size_t part_count = 0;
+        long long bytes_written = 0;
+
+        Aws::Vector<bool> has_data_after(inputs.size(), false);
+        bool seen = false;
+        for (size_t i = inputs.size(); i-- > 0;)
+        {
+            has_data_after[i] = seen;
+            if (inputs[i].size > 0)
+                seen = true;
+        }
+
+        auto append_range_to_buffer = [&](const Src& src, long long start, long long len) -> bool {
+            if (len <= 0) return true;
+
+            spdlog::debug("concat_stage: download range {}:{} (len={}) into buffer",
+                          src.key, start, len);
+
+            Aws::Vector<unsigned char> tmp;
+            tmp.reserve(static_cast<size_t>(len));
+
+            auto dl_outcome = DownloadFileRangeToVector(
+                src.bucket, src.key, tmp,
+                static_cast<int64_t>(start),
+                static_cast<int64_t>(start + len - 1),
+                src.etag);
+
+            if (!dl_outcome.IsSuccess())
+            {
+                Aws::String msg = "concat_stage: download failed: " +
+                                  dl_outcome.GetError().GetMessage();
+                LogError(msg);
+                return false;
+            }
+
+            if (dl_outcome.GetResult() != len)
+            {
+                LogError("concat_stage: short read while downloading source range");
+                return false;
+            }
+
+            writer->buffer_.reserve(writer->buffer_.size() + tmp.size());
+            writer->buffer_.insert(writer->buffer_.end(), tmp.begin(), tmp.end());
+
+            spdlog::debug("concat_stage: buffer size now {}", writer->buffer_.size());
+            return true;
+        };
+
+        auto flush_buffer = [&](bool is_last_part) -> bool {
+            if (writer->buffer_.empty()) return true;
+
+            const size_t sz = writer->buffer_.size();
+            if (!is_last_part && sz < static_cast<size_t>(MIN_PART))
+            {
+                LogError("concat_stage: internal error, part < 5MiB");
+                return false;
+            }
+            if (sz > static_cast<size_t>(MAX_PART))
+            {
+                LogError("concat_stage: internal error, part > 5GiB");
+                return false;
+            }
+            if (part_count >= static_cast<size_t>(MAX_PARTS))
+            {
+                LogError("concat_stage: exceeded 10,000 parts");
+                return false;
+            }
+
+            spdlog::debug("concat_stage: UploadPart (part #{}) size={}",
+                          writer->part_tracker_, sz);
+
+            auto outcome = UploadPart(*writer);
+            if (!outcome.IsSuccess())
+            {
+                LogBadOutcome(outcome, "Error during UploadPart");
+                return false;
+            }
+
+            part_count++;
+            bytes_written += static_cast<long long>(sz);
+            writer->buffer_.clear();
+
+            return true;
+        };
+
+        auto upload_copy_range = [&](const Src& src, long long start, long long len) -> bool {
+            if (len <= 0) return true;
+            if (part_count >= static_cast<size_t>(MAX_PARTS))
+            {
+                LogError("concat_stage: exceeded 10,000 parts");
+                return false;
+            }
+
+            writer->append_target_ = src.bucket + "/" + src.key;
+
+            spdlog::debug("concat_stage: UploadPartCopy (part #{}) {} [{}..{}] len={}",
+                          writer->part_tracker_, src.key, start, start + len - 1, len);
+
+            auto outcome = UploadPartCopy(*writer, MakeByteRange(start, start + len - 1));
+            if (!outcome.IsSuccess())
+            {
+                LogBadOutcome(outcome, "Error during UploadPartCopy");
+                return false;
+            }
+
+            part_count++;
+            bytes_written += len;
+            return true;
+        };
+
+        writer->buffer_.clear();
+
+        for (size_t i = 0; i < inputs.size(); ++i)
+        {
+            const auto& src = inputs[i];
+            if (src.size == 0) continue;
+
+            spdlog::debug("concat_stage: processing source {} size={}", src.key, src.size);
+
+            long long offset = 0;
+            long long rem = src.size;
+
+            // If a partial buffer exists, fill it minimally and flush.
+            if (!writer->buffer_.empty())
+            {
+                if (writer->buffer_.size() >= static_cast<size_t>(MIN_PART))
+                {
+                    if (!flush_buffer(false)) { abort_upload(); return false; }
+                }
+
+                if (writer->buffer_.size() < static_cast<size_t>(MIN_PART))
+                {
+                    const long long need = MIN_PART - static_cast<long long>(writer->buffer_.size());
+                    const long long to_take = std::min<long long>(need, rem);
+
+                    if (to_take > 0)
+                    {
+                        if (!append_range_to_buffer(src, offset, to_take))
+                        {
+                            abort_upload();
+                            return false;
+                        }
+                        offset += to_take;
+                        rem -= to_take;
+                    }
+
+                    if (writer->buffer_.size() >= static_cast<size_t>(MIN_PART))
+                    {
+                        if (!flush_buffer(false)) { abort_upload(); return false; }
+                    }
+
+                    if (rem == 0)
+                    {
+                        continue;
+                    }
+                }
+            }
+
+            // Server-side copy the remaining bytes, except small tail (<5 MiB) when more data follows.
+            while (rem > 0)
+            {
+                if (rem > MAX_PART)
+                {
+                    if (!upload_copy_range(src, offset, MAX_PART))
+                    {
+                        abort_upload();
+                        return false;
+                    }
+                    offset += MAX_PART;
+                    rem -= MAX_PART;
+                    continue;
+                }
+
+                if (rem < MIN_PART && has_data_after[i])
+                {
+                    spdlog::debug("concat_stage: tail <5MiB buffered (source {}, len={})",
+                                  src.key, rem);
+                    if (!append_range_to_buffer(src, offset, rem))
+                    {
+                        abort_upload();
+                        return false;
+                    }
+                    offset += rem;
+                    rem = 0;
+                    break;
+                }
+                else
+                {
+                    if (!upload_copy_range(src, offset, rem))
+                    {
+                        abort_upload();
+                        return false;
+                    }
+                    offset += rem;
+                    rem = 0;
+                    break;
+                }
+            }
+        }
+
+        // Flush remaining buffer as last part (may be < 5 MiB).
+        if (!writer->buffer_.empty())
+        {
+            if (!flush_buffer(true))
+            {
+                abort_upload();
+                return false;
+            }
+        }
+
+        if (part_count == 0)
+        {
+            LogError("concat_stage: no parts uploaded (internal error)");
+            abort_upload();
+            return false;
+        }
+
+        auto complete = client->CompleteMultipartUpload(
+            MakeCompleteMultipartUploadRequest(*writer));
+        if (!complete.IsSuccess())
+        {
+            LogBadOutcome(complete, "Error completing concat stage");
+            abort_upload();
+            return false;
+        }
+
+        spdlog::info("concat_stage: completed dest={} parts={} bytes={}",
+                     dest_key, part_count, bytes_written);
+
+        return true;
+    };
+
+    Aws::Vector<Aws::String> temp_keys;
+    Aws::Vector<Src> current = srcs;
+
+    int level = 0;
+
+    while (true)
+    {
+        long long total_est = 0;
+        for (const auto& s : current)
+        {
+            long long est = estimate_parts(s);
+            if (est > MAX_PARTS)
+            {
+                LogError("driver_concat: single source exceeds 10,000-part limit");
+                cleanup_temps(temp_keys);
+                return kFailure;
+            }
+            total_est += est;
+        }
+
+        spdlog::info("driver_concat: level {} sources={} estimated_parts={}",
+                     level, current.size(), total_est);
+
+        if (total_est <= MAX_PARTS)
+        {
+            // Final stage to destination
+            if (!concat_stage(current, names.object_, level, 0))
+            {
+                cleanup_temps(temp_keys);
+                return kFailure;
+            }
+            break;
+        }
+
+        // Build groups for this level
+        Aws::Vector<Src> next;
+        size_t idx = 0;
+        int group = 0;
+
+        while (idx < current.size())
+        {
+            long long group_est = 0;
+            Aws::Vector<Src> group_sources;
+
+            while (idx < current.size())
+            {
+                long long est = estimate_parts(current[idx]);
+                if (!group_sources.empty() && group_est + est > MAX_PARTS)
+                {
+                    break;
+                }
+                group_sources.push_back(current[idx]);
+                group_est += est;
+                idx++;
+            }
+
+            if (group_sources.empty())
+            {
+                LogError("driver_concat: grouping failed due to part limit");
+                cleanup_temps(temp_keys);
+                return kFailure;
+            }
+
+            Aws::String tmp_key = make_temp_key(level, group);
+
+            spdlog::info("driver_concat: level {} group {} -> temp {} (sources={}, est_parts={})",
+                         level, group, tmp_key, group_sources.size(), group_est);
+
+            if (!concat_stage(group_sources, tmp_key, level, group))
+            {
+                cleanup_temps(temp_keys);
+                return kFailure;
+            }
+
+            auto head_outcome = HeadObject(names.bucket_, tmp_key);
+            if (!head_outcome.IsSuccess())
+            {
+                LogBadOutcome(head_outcome, "Error getting temp object metadata");
+                cleanup_temps(temp_keys);
+                return kFailure;
+            }
+
+            const auto& head = head_outcome.GetResult();
+            next.push_back({names.bucket_, tmp_key, head.GetContentLength(), head.GetETag()});
+            temp_keys.push_back(tmp_key);
+
+            group++;
+        }
+
+        current = std::move(next);
+        level++;
+    }
+
+    // Cleanup intermediate objects
+    cleanup_temps(temp_keys);
+
+    // Delete all source objects (except destination)
+    bool delete_ok = true;
+    for (const auto& k : sources_to_delete)
+    {
+        Aws::S3::Model::DeleteObjectRequest del;
+        del.WithBucket(names.bucket_).WithKey(k);
+
+        auto del_outcome = client->DeleteObject(del);
+        if (!del_outcome.IsSuccess())
+        {
+            delete_ok = false;
+            spdlog::error("driver_concat: failed to delete source {}: {}",
+                          k, del_outcome.GetError().GetMessage());
+        }
+        else
+        {
+            spdlog::debug("driver_concat: deleted source {}", k);
+        }
+    }
+
+    return delete_ok ? kSuccess : kFailure;
 }
 
 bool test_compareFiles(const char* local_file_path_str, const char* s3_uri_str) {
