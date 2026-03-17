@@ -115,6 +115,12 @@ jobs:
           configurePresetAdditionalArgs: '["-DBUILD_TESTS=ON"]'
           buildPreset: 'ninja-rel'
           testPreset: 'ninja-rel'
+
+      - name: Upload results of cloud storage tests
+        if: always()
+        uses: test-summary/action@v2
+        with:
+          paths: ${{ github.workspace }}/build/release/test_results.xml
   
       - name: Upload the packages as artifacts
         uses: actions/upload-artifact@v4

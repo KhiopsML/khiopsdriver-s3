@@ -146,8 +146,13 @@ jobs:
       # Test the whole project with CTest, again Release configuration only.
       - name: Test (Release configuration)
         run: |
-          ctest --preset ninja-rel
+          ctest --preset ninja-rel --output-junit test_results.xml
 
+      - name: Upload results of cloud storage tests
+        if: always()
+        uses: test-summary/action@v2
+        with:
+          paths: ${{ github.workspace }}/build/release/test_results.xml
 
       - name: Upload the packages as artifacts
         uses: actions/upload-artifact@v4
