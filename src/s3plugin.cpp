@@ -2059,7 +2059,7 @@ int driver_concat(const char *destfilename, const char **sourcefilenames, size_t
 
             if (part < MIN_PART && !is_last_part)
             {
-                LogError("driver_concat: part < 5MB not allowed except for last part");
+                LogError("driver_concat: part < 5MiB not allowed except for last part");
                 abort_upload();
                 return kFailure;
             }
