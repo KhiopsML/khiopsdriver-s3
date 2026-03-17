@@ -1615,7 +1615,7 @@ int driver_fseek(void* stream, long long int offset, int whence)
 			return kBadSize;
 		}
 
-		computed_offset = (h.total_size_ == 0) ? offset : h.total_size_ - 1 + offset;
+		computed_offset = (h.total_size_ == 0) ? offset : h.total_size_ + offset;
 		break;
 	default:
 		LogError("Invalid seek mode " + std::to_string(whence));
