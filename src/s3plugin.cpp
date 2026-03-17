@@ -320,10 +320,29 @@ SizeOutcome ReadBytesInFile(MultiPartFile& multifile, unsigned char* buffer, tOf
 	tOffset& offset = multifile.offset_;
 	const tOffset offset_bak = offset; // in case of irrecoverable error, leave the multifile in its starting state
 
+	if (filenames.empty() || cumul_sizes.empty()) {
+		return MakeSimpleError(Aws::S3::S3Errors::INTERNAL_FAILURE, "Cannot read from an empty multipart file.");
+	}
+
 	auto greater_than_offset_it = std::upper_bound(cumul_sizes.begin(), cumul_sizes.end(), offset);
 	size_t idx = static_cast<size_t>(std::distance(cumul_sizes.begin(), greater_than_offset_it));
 
-	spdlog::debug("Use item {} to read @ {} (end = {})", idx, offset, *greater_than_offset_it);
+	// If offset is at/after the tracked end, route through the last file so that
+	// generation consistency checks still run before returning EOF/out-of-range.
+	if (idx == cumul_sizes.size()) {
+		idx = cumul_sizes.size() - 1;
+	}
+
+	if (idx >= cumul_sizes.size() || idx >= filenames.size() ||
+		idx >= multifile.etags_.size()) {
+		return MakeSimpleError(Aws::S3::S3Errors::INTERNAL_FAILURE, "Cannot read after end of file.");
+	}
+
+	const tOffset range_end_for_log =
+      (greater_than_offset_it == cumul_sizes.end()) ? cumul_sizes.back()
+                                                    : *greater_than_offset_it;
+
+	spdlog::debug("Use item {} to read @ {} (end = {})", idx, offset, range_end_for_log);
 
 	auto read_range_and_update = [&](const Aws::String& filename, tOffset start, tOffset end) -> SizeOutcome
 	{
@@ -345,7 +364,7 @@ SizeOutcome ReadBytesInFile(MultiPartFile& multifile, unsigned char* buffer, tOf
 		buffer_pos += actual_read;
 		offset += actual_read;
 
-		if (actual_read < (end - start + 1) /*expected read*/)
+		if (actual_read < (end - start) /*expected read*/)
 		{
 			spdlog::debug("End of file encountered");
 			to_read = 0;
@@ -1608,24 +1627,24 @@ long long int driver_fread(void* ptr, size_t size, size_t count, void* stream)
 	// end of overflow prevention
 
 	// special case: if offset >= total_size, error if not 0 byte required. 0 byte required is already done above
-	const tOffset total_size = h.total_size_;
-	if (offset >= total_size)
-	{
-		LogError("Error trying to read more bytes while already out of bounds");
-		return kBadSize;
-	}
+	// const tOffset total_size = h.total_size_;
+	// if (offset >= total_size)
+	// {
+	// 	LogError("Error trying to read more bytes while already out of bounds");
+	// 	return kBadSize;
+	// }
 
-	// normal cases
-	if (offset + to_read > total_size)
-	{
-		to_read = total_size - offset;
-		spdlog::debug("offset {}, req len {} exceeds file size ({}) -> reducing len to {}", offset, to_read,
-			      total_size, to_read);
-	}
-	else
-	{
-		spdlog::debug("offset = {} to_read = {}", offset, to_read);
-	}
+	// // normal cases
+	// if (offset + to_read > total_size)
+	// {
+	// 	to_read = total_size - offset;
+	// 	spdlog::debug("offset {}, req len {} exceeds file size ({}) -> reducing len to {}", offset, to_read,
+	// 		      total_size, to_read);
+	// }
+	// else
+	// {
+	spdlog::debug("offset = {} to_read = {}", offset, to_read);
+	// }
 
 	auto read_outcome = ReadBytesInFile(h, reinterpret_cast<unsigned char*>(ptr), to_read);
 	RETURN_ON_ERROR(read_outcome, "Error while reading from file", kBadSize);
