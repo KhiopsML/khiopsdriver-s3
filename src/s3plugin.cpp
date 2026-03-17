@@ -345,7 +345,7 @@ SizeOutcome ReadBytesInFile(MultiPartFile& multifile, unsigned char* buffer, tOf
 	const auto& filenames = multifile.filenames_;
 	unsigned char* buffer_pos = buffer;
 	tOffset& offset = multifile.offset_;
-	const tOffset offset_bak = offset; // in case of irrecoverable error, leave the multifile in its starting state
+	// const tOffset offset_bak = offset; // in case of irrecoverable error, leave the multifile in its starting state
 
 	if (filenames.empty() || cumul_sizes.empty()) {
 		return MakeSimpleError(Aws::S3::S3Errors::INTERNAL_FAILURE, "Cannot read from an empty multipart file.");
@@ -356,7 +356,8 @@ SizeOutcome ReadBytesInFile(MultiPartFile& multifile, unsigned char* buffer, tOf
 	if (offset >= total_size) {
 		auto etag_check = CheckEtagOnly(multifile, cumul_sizes.size() - 1);
 		if (!etag_check.IsSuccess()) {
-			return etag_check.GetError();
+			return MakeSimpleError(Aws::S3::S3Errors::INTERNAL_FAILURE,
+								"The file has been updated while reading it.");
 		}
 
 		if (to_read == 0) {
@@ -396,9 +397,11 @@ SizeOutcome ReadBytesInFile(MultiPartFile& multifile, unsigned char* buffer, tOf
 		    bucket_name, filename, buffer_pos, static_cast<int64_t>(start), static_cast<int64_t>(end), etag);
 		if (!download_outcome.IsSuccess())
 		{
-			offset = offset_bak;
-			return download_outcome.GetError();
+			return MakeSimpleError(Aws::S3::S3Errors::INTERNAL_FAILURE,
+								"The file has been updated while reading it.");
 		}
+
+
 
 		tOffset actual_read = download_outcome.GetResult();
 
