@@ -1,9 +1,9 @@
 #include "path_helper.h"
 
 #if defined(_WIN32)
+#include <windows.h>
 #include <Shlwapi.h>
 #include <io.h>
-#include <windows.h>
 
 #define access _access_s
 #endif
