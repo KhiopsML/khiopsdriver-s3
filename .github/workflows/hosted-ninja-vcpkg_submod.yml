@@ -87,6 +87,8 @@ jobs:
           configurePresetAdditionalArgs: '["-DBUILD_TESTS=ON"]'
           buildPreset: 'ninja-dbg'
           testPreset: 'ninja-dbg'
+        env:
+          CTEST_PARALLEL_LEVEL: ''
 
       # GCOV seems to be broken with newer versions of GCC, so we disable it for now.
       # - name: Generate coverage report
@@ -108,6 +110,7 @@ jobs:
         uses: lukka/run-cmake@v10
         env:
           S3_DRIVER_LOGLEVEL: debug
+          CTEST_PARALLEL_LEVEL: ''
         with:
           configurePreset: 'ninja-rel'
           configurePresetAdditionalArgs: '["-DBUILD_TESTS=ON"]'

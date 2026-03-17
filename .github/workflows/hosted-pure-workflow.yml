@@ -147,6 +147,8 @@ jobs:
       - name: Test (Release configuration)
         run: |
           ctest --preset ninja-rel --output-junit test_results.xml
+        env:
+          CTEST_PARALLEL_LEVEL: ''
 
       - name: Upload results of cloud storage tests
         if: always()
