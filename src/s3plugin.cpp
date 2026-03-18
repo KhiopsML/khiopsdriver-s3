@@ -1580,7 +1580,7 @@ int driver_fseek(void* stream, long long int offset, int whence)
 	// if (HandleType::kRead != stream_h->type)
 	// {
 	//     LogError("Cannot seek on not reading stream");
-	//     return -1;
+	//     return kFailure;
 	// }
 
 	spdlog::debug("fseek {} {} {}", stream, offset, whence);
@@ -1631,7 +1631,7 @@ int driver_fseek(void* stream, long long int offset, int whence)
 		return kFailure;
 	}
 	h.offset_ = computed_offset;
-	return 0;
+	return kSuccess;
 }
 
 const char* driver_getlasterror()
@@ -1668,7 +1668,7 @@ long long int driver_fread(void* ptr, size_t size, size_t count, void* stream)
 	// fast exit for 0 read
 	if (0 == count)
 	{
-		return 0;
+		return 0LL;
 	}
 
 	// prevent overflow
@@ -1732,7 +1732,7 @@ long long int driver_fwrite(const void* ptr, size_t size, size_t count, void* st
 	// fast exit for 0
 	if (0 == count)
 	{
-		return 0;
+		return 0LL;
 	}
 
 	// prevent integer overflow
@@ -1794,7 +1794,7 @@ int driver_fflush(void*)
 	KH_S3_NOT_CONNECTED(kFailure);
 
 	spdlog::debug("Flushing (does nothing...)");
-	return 0;
+	return kSuccess;
 }
 
 int driver_remove(const char* filename)
@@ -1847,7 +1847,7 @@ int driver_mkdir(const char* filename)
 	ERROR_ON_NULL_ARG(filename, kOtherFailure);
 	spdlog::debug("mkdir {}", filename);
 
-	return 1;
+	return kOtherSuccess;
 }
 
 long long int driver_diskFreeSpace(const char* filename)
