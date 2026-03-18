@@ -1,0 +1,159 @@
+---
+name: RPM Packages
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+    strategy:
+      fail-fast: false
+      matrix:
+        image: ['rockylinux:9']
+    container:
+      image: ${{ matrix.image }}
+    steps:
+      - name: Install packages
+        run: |
+          dnf upgrade -y
+          dnf install -y gcc-c++ make rpm-build # we do not use ninja because it is not in the dnf repo
+          dnf install -y git perl # for vcpkg
+          # Note: We install cmake from kitware's site to have a more recent version 
+          curl -LO "https://github.com/Kitware/CMake/releases/download/v3.26.5/cmake-3.26.5-linux-x86_64.sh"
+          sh cmake-3.26.5-linux-x86_64.sh --prefix=/usr/local/ --exclude-subdir
+      - name: Checkout sources
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+      - name: Configure CMake
+        run: |
+            cmake -B builds -S . -G 'Unix Makefiles'  -D CMAKE_BUILD_TYPE=Release -D CMAKE_TOOLCHAIN_FILE=vcpkg/scripts/buildsystems/vcpkg.cmake
+      - name: Build 
+        run: |
+            cmake --build builds --target khiopsdriver_file_s3
+      - name: Build package with CPack
+        run: |
+            cd builds/ && cpack -G RPM
+      - name: Set environment variables
+        run: |
+          source /etc/os-release
+          echo "ID=$ID" >> "$GITHUB_ENV"
+          VERSION_CODENAME=$(echo $PLATFORM_ID | cut -d":" -f2)
+          echo "VERSION_CODENAME=$VERSION_CODENAME" >> "$GITHUB_ENV"
+      - name: Rename packages with codename
+        run: |
+          source /etc/os-release
+          ARCH=$(arch)
+          cd builds/packages
+          for filename in *.rpm
+          do
+            mv -v $filename ${filename%.${ARCH}*}.${{ env.VERSION_CODENAME }}.${ARCH}.rpm
+          done
+      - name: Upload the packages as artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          # We add a `rpm-` prefix so we can later recover all artifacts with the pattern `rpm-*`
+          # Note: The more natural pattern `*-rpm` or `*` does not work
+          name: rpm-${{ env.ID }}-${{ env.VERSION_CODENAME }}
+          path: builds/packages/*.rpm
+          if-no-files-found: error
+
+  # Test packages on a brand new runner to check:
+  # - the installation process (including dependencies installation)
+  # - that executable works (run with -s)
+  # - that it executes a small test
+  test:
+    needs: build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+    strategy:
+      fail-fast: false
+      matrix:
+        rocky_version: [9]
+    permissions:
+      contents: 'read'
+      id-token: 'write'            
+    env:
+      # S3 configuration used for testing
+      AWS_ENDPOINT_URL: ${{ vars.AWS_ENDPOINT_URL }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+    container:
+      image: rockylinux:${{ matrix.rocky_version }}
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4
+      - name: Set environment variables
+        run: |
+          source /etc/os-release
+          echo "ID=$ID" >> "$GITHUB_ENV"
+          VERSION=$(echo $PLATFORM_ID | cut -d":" -f2)
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "MPI_IMPLEMENTATION=${{ inputs.mpi_implementation || 'openmpi' }}" >> "$GITHUB_ENV"
+      - name: Download and install Khiops core
+        run: |
+          curl -L https://github.com/KhiopsML/khiops/releases/download/11.0.0-rc.2/khiops-core-${{ env.MPI_IMPLEMENTATION }}-11.0.0_rc.2-1.${{ env.VERSION }}.x86_64.rpm --output ./khiops-core.rpm
+          yum install -y ./khiops-core*
+      - name: Download artifacts (driver package)
+        uses: actions/download-artifact@v4
+        with:
+          name: rpm-${{ env.ID }}-${{ env.VERSION }}
+          path: artifacts
+      - name: Install driver
+        run: |
+          yum install -y ./artifacts/khiops-driver-*.rpm
+      - name: Check Khiops core installation
+        uses: ./.github/actions/test-khiops-install
+      - name: Test Khiops on Iris dataset
+        uses: ./.github/actions/test-khiops-on-iris
+        with:
+          os-decription: ${{ env.ID }}-${{ matrix.rocky_version }}
+
+
+  # Release is only executed on tags
+  release:
+    if: github.ref_type == 'tag'
+    # We release even if the tests fail (we delete from the release whatever fails manually)
+    needs: build
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download package artifacts
+        uses: actions/download-artifact@v4
+        with:
+          # See the upload-artifact step in the build job for the explanation of this pattern
+          pattern: rpm-*
+          merge-multiple: true
+      - name: Rename packages with tag version
+        run: |
+         # Renames the packge only if the source version differs from the tag
+         SOURCE_VERSION=$(./scripts/driver-version | sed 's/-/_/')
+         TAG_VERSION=$(echo "${{ github.ref_name }}" | sed 's/-/_/')
+         for PKG_FILE in *.rpm
+         do
+           NEW_PKG_FILE=$(echo $PKG_FILE | sed "s/-${SOURCE_VERSION}-/-${TAG_VERSION}-/")
+           if [[ "$PKG_FILE" != "$NEW_PKG_FILE" ]]
+           then
+             echo "Renaming '$PKG_FILE' to '$NEW_PKG_FILE'"
+             mv $PKG_FILE $NEW_PKG_FILE
+           fi
+         done
+      - name: Upload packages to the release
+        uses: ncipollo/release-action@v1.14.0
+        with:
+          allowUpdates: true
+          artifacts: '*.rpm'
+          body: |
+            **This release is for testing purposes only and there is no support for it.**
+            **Go to https://khiops.org to install the latest supported version.**
+          draft: false
+          makeLatest: false
+          prerelease: true
+          updateOnlyUnreleased: true

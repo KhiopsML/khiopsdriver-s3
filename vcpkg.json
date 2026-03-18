@@ -9,10 +9,17 @@
         "s3"
       ]
     },
-    "boost-process",
-    "boost-uuid",
-    "fmt",
-    "spdlog",
-    "zlib"
+    {
+      "name": "boost-process"
+    },
+    {
+      "name": "boost-uuid"
+    },
+    {
+      "name": "spdlog"
+    },
+    {
+      "name": "zlib"
+    }
   ]
 }

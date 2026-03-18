@@ -1,0 +1,2 @@
+# Ignore leaky library function
+leak:s2n_rand_init

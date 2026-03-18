@@ -15,10 +15,10 @@
 # - Finally builds the sources with Ninja, and tests as well.
 name: hosted-ninja-vcpkg_submod-autocache
 on:
-  push: 
+  push:
+  workflow_dispatch:
   pull_request:
     branches: 
-    - v11
     - main
 
 jobs:
@@ -28,16 +28,15 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-13, macos-14, windows-latest]
         include:
-          - os: windows-latest
-            triplet: x64-windows
-          - os: ubuntu-latest
-            triplet: x64-linux
-          - os: macos-13
-            triplet: x64-osx
-          - os: macos-14
-            triplet: arm64-osx
+          - {os: ubuntu-latest, triplet: x64-linux}
+          - {os: macos-latest, triplet: arm64-osx}
+          - {os: macos-15-intel, triplet: x64-osx}
+          - {os: macos-14, triplet: arm64-osx}
+          - {os: windows-latest, triplet: x64-windows}
+    defaults:
+      run:
+        shell: bash
     permissions:
       contents: 'read'
       id-token: 'write'
@@ -53,13 +52,19 @@ jobs:
       AWS_ENDPOINT_URL: ${{ vars.AWS_ENDPOINT_URL }}
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      STORAGE_DRIVER_TEST_URL_PREFIX: s3://diod-data-di-jupyterhub
       
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: true
+          fetch-depth: 0
 
+<<<<<<< renovate/lukka-get-cmake-3.x
       - uses: lukka/get-cmake@v3.30.3
+=======
+      - uses: lukka/get-cmake@v3.30.1
+>>>>>>> main
 
       - name: Restore from cache and setup vcpkg executable and data files.
         uses: lukka/run-vcpkg@v11
@@ -82,35 +87,46 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         uses: lukka/run-cmake@v10
         with:
-          configurePreset: 'ninja-multi-vcpkg'
-          configurePresetAdditionalArgs: "['-DCMAKE_BUILD_TYPE=Debug']"
-          buildPreset: 'ninja-vcpkg-debug'
-          testPreset: 'test-debug'
-          testPresetAdditionalArgs: "['--output-on-failure']"
+          configurePreset: 'ninja-dbg'
+          configurePresetAdditionalArgs: '["-DBUILD_TESTS=ON"]'
+          buildPreset: 'ninja-dbg'
+          testPreset: 'ninja-dbg'
+        env:
+          CTEST_PARALLEL_LEVEL: ''
 
-      - name: Generate coverage report
-        if: matrix.os == 'ubuntu-latest'
-        run: |
-          cmake --build --preset ninja-vcpkg-debug --target khiops-s3_coverage --target khiops-s3_cobertura
+      # GCOV seems to be broken with newer versions of GCC, so we disable it for now.
+      # - name: Generate coverage report
+      #   if: matrix.os == 'ubuntu-latest'
+      #   run: |
+      #     cmake --build --preset ninja-vcpkg-debug --target khiops-s3_coverage --target khiops-s3_cobertura
 
-      - name: Upload coverage results
-        uses: actions/upload-artifact@v4
-        if: matrix.os == 'ubuntu-latest'
-        with:
-          name: coverage
-          path: |
-            builds/ninja-multi-vcpkg/coverage/*
-            builds/ninja-multi-vcpkg/coverage.*
-          if-no-files-found: ignore
+      # - name: Upload coverage results
+      #   uses: actions/upload-artifact@v4
+      #   if: matrix.os == 'ubuntu-latest'
+      #   with:
+      #     name: coverage
+      #     path: |
+      #       builds/ninja-multi-vcpkg/coverage/*
+      #       builds/ninja-multi-vcpkg/coverage.*
+      #     if-no-files-found: ignore
 
       - name: Run CMake+vcpkg+Ninja+CTest to build packages and generate/build/test the code.
         uses: lukka/run-cmake@v10
+        env:
+          S3_DRIVER_LOGLEVEL: debug
+          CTEST_PARALLEL_LEVEL: ''
         with:
-          configurePreset: 'ninja-multi-vcpkg'
-          configurePresetAdditionalArgs: "['-DCMAKE_BUILD_TYPE=Release']"
-          buildPreset: 'ninja-vcpkg-release'
-          testPreset: 'test-release'
-          testPresetAdditionalArgs: "['--output-on-failure']"
+          configurePreset: 'ninja-rel'
+          configurePresetAdditionalArgs: '["-DBUILD_TESTS=ON"]'
+          buildPreset: 'ninja-rel'
+          testPreset: 'ninja-rel'
+          testPresetAdditionalArgs: '["--output-junit", "test_results.xml"]'
+
+      - name: Upload results of cloud storage tests
+        if: always()
+        uses: test-summary/action@v2
+        with:
+          paths: ${{ github.workspace }}/build/release/test_results.xml
   
       - name: Upload the packages as artifacts
         uses: actions/upload-artifact@v4
@@ -119,5 +135,5 @@ jobs:
           path: |
             builds/ninja-multi-vcpkg/lib/*.dylib
             builds/ninja-multi-vcpkg/lib/*.so
-            builds/ninja-multi-vcpkg/bin/*.dll
+            builds/ninja-multi-vcpkg/lib/*.dll
           if-no-files-found: ignore

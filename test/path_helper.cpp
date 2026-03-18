@@ -1,9 +1,9 @@
 #include "path_helper.h"
 
 #if defined(_WIN32)
+#include <windows.h>
 #include <Shlwapi.h>
 #include <io.h>
-#include <windows.h>
 
 #define access _access_s
 #endif
@@ -36,8 +36,9 @@ std::string getExecutablePath() {
 
 std::string getExecutableDir() {
   std::string executablePath = getExecutablePath();
-  char *exePath = new char[executablePath.length()];
-  strcpy(exePath, executablePath.c_str());
+  char *exePath = new char[executablePath.length() + 1];
+  strncpy_s(exePath, executablePath.length() + 1, executablePath.c_str(),
+            executablePath.length() + 1);
   PathRemoveFileSpec(exePath);
   std::string directory = std::string(exePath);
   delete[] exePath;

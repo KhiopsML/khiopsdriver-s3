@@ -1,4 +1,15 @@
 #pragma once
+
+#define KHIOPS_STR(s) #s
+// Driver version
+#define DRIVER_VERSION KHIOPS_STR(0.0.15)
+
+// Release versions must have 3 digits, for example KHIOPS_STR(1.2.0)
+// Alpha, beta ou release candidate have an extra suffix, for example :
+// - KHIOPS_STR(1.2.0-a.1)
+// - KHIOPS_STR(1.2.0-b.3)
+// - KHIOPS_STR(1.2.0-rc.2)
+
 #include <cstdlib>
 #include <sys/types.h>
 
@@ -13,7 +24,11 @@
 #define VISIBLE __attribute__((visibility("default")))
 #else
 /* Windows Visual C++ only */
+#ifdef S3_PLUGIN_EXPORT
 #define VISIBLE __declspec(dllexport)
+#else
+#define VISIBLE __declspec(dllimport)
+#endif
 #endif
 
 /* Use of C linkage from C++ */
@@ -143,6 +158,14 @@ VISIBLE int driver_copyToLocal(const char *sourcefilename,
 // if it is implemented Returns 1 on success, 0 on error
 VISIBLE int driver_copyFromLocal(const char *sourcefilename,
                                  const char *destfilename);
+
+// Concatenates all sourcefilecount files specified in sourcefilenames to a new
+// file destfilename. Sourcefilenames must be objects from the same
+// bucket as the destfilename.
+// The concatenation is done on the storage server side.
+// The source files are not deleted Returns 1 on success, 0 on error.
+VISIBLE int driver_concat(const char *destfilename,
+                          const char **sourcefilenames, size_t sourcefilecount);
 
 #ifdef __cplusplus
 } /* extern "C" */

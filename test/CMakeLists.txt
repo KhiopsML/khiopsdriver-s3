@@ -18,32 +18,41 @@ find_package(
   AWSSDK CONFIG
   COMPONENTS core s3
   REQUIRED)
-add_executable(basic_test basic_test.cpp drivertest.cpp)
+add_executable(s3_test s3_test.cpp drivertest.cpp)
 
 target_compile_options(
-  basic_test
-  PRIVATE $<$<CXX_COMPILER_ID:MSVC>:-Wall>
+  s3_test
+  PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/W4;/wd4101;/wd4625;/wd4710;/wd4711>
   PRIVATE $<$<CXX_COMPILER_ID:AppleClang,Clang,GNU>:-Wall;-Wextra;-pedantic>)
 
 # MSVC requires /bigobj to build in debug config
 target_compile_options(
-  basic_test PRIVATE $<$<AND:$<CONFIG:Debug>,$<CXX_COMPILER_ID:MSVC>>:/bigobj>)
+  s3_test PRIVATE $<$<AND:$<CONFIG:Debug>,$<CXX_COMPILER_ID:MSVC>>:/bigobj>)
 
 target_include_directories(
-  basic_test
+  s3_test
   PRIVATE ${${PROJECT_NAME}_SOURCE_DIR}/src
-  PRIVATE ${AWSSDK_INCLUDE_DIRS})
-target_link_libraries(basic_test PRIVATE ${AWSSDK_LIBRARIES})
+  PRIVATE ${AWSSDK_INCLUDE_DIRS}
+  PRIVATE ${${PROJECT_NAME}_SOURCE_DIR}/src/contrib)
+target_link_libraries(s3_test PRIVATE ${AWSSDK_LIBRARIES})
 
-target_link_libraries(basic_test PRIVATE GTest::gtest GTest::gmock
+target_link_libraries(s3_test PRIVATE GTest::gtest GTest::gmock
                                          GTest::gmock_main khiopsdriver_file_s3)
 
-gtest_discover_tests(basic_test)
+if (WIN32)
+  target_link_libraries(s3_test PRIVATE ws2_32)
+endif()
+
+gtest_discover_tests(s3_test 
+  PROPERTIES
+    ENVIRONMENT "LSAN_OPTIONS=suppressions=${CMAKE_SOURCE_DIR}/lsan_suppressions.txt"
+)
 
 add_executable(plugin_test plugin_test.cpp path_helper.cpp)
+target_include_directories(plugin_test PRIVATE ${${PROJECT_NAME}_SOURCE_DIR}/src)
 target_compile_options(
   plugin_test
-  PRIVATE $<$<CXX_COMPILER_ID:MSVC>:-Wall>
+  PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/W4;/wd4101;/wd4710;/wd4711>
   PRIVATE $<$<CXX_COMPILER_ID:AppleClang,Clang,GNU>:-Wall;-Wextra;-pedantic>)
 if(WIN32)
   # custom build and test execution for Windows
