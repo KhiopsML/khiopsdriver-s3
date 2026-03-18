@@ -730,7 +730,7 @@ int driver_connect()
 	if (kTrue == bIsConnected)
 	{
 		spdlog::debug("Driver is already connected");
-		return kSuccess;
+		return kOtherSuccess;
 	}
 
 	auto file_exists = [](const Aws::String& name)
@@ -806,7 +806,7 @@ int driver_connect()
 		}
 		else if (configFile != defaultConfig)
 		{
-			return kFailure;
+			return kOtherFailure;
 		}
 	}
 
@@ -867,7 +867,7 @@ int driver_connect()
 						    clientConfig);
 
 	bIsConnected = true;
-	return kSuccess;
+	return kOtherSuccess;
 }
 
 int driver_disconnect()
@@ -904,7 +904,7 @@ int driver_disconnect()
 			}
 			LogError(os.str());
 
-			return kFailure;
+			return kOtherFailure;
 		}
 	}
 
@@ -918,7 +918,7 @@ int driver_disconnect()
 
 	bIsConnected = kFalse;
 
-	return kSuccess;
+	return kOtherSuccess;
 }
 
 int driver_isConnected()
@@ -1524,14 +1524,14 @@ void* driver_fopen(const char* filename, char mode)
 	if (type##_handle_it != (container).end())                                                                     \
 	{                                                                                                              \
 		EraseRemove((container), type##_handle_it);                                                            \
-		return kCloseSuccess;                                                                                  \
+		return kSuccess;                                                                                  \
 	}
 
 int driver_fclose(void* stream)
 {
-	KH_S3_NOT_CONNECTED(kCloseEOF);
+	KH_S3_NOT_CONNECTED(kFailure);
 
-	ERROR_ON_NULL_ARG(stream, kCloseEOF);
+	ERROR_ON_NULL_ARG(stream, kFailure);
 
 	spdlog::debug("fclose {}", (void*)stream);
 
@@ -1544,7 +1544,7 @@ int driver_fclose(void* stream)
 		// first, flush the pending data
 		auto& writer = **writer_h_it;
 		const auto upload_outcome = UploadPart(writer);
-		RETURN_ON_ERROR(upload_outcome, "Error during upload", kCloseEOF);
+		RETURN_ON_ERROR(upload_outcome, "Error during upload", kFailure);
 
 		// close upload
 		const auto complete_outcome =
@@ -1554,15 +1554,15 @@ int driver_fclose(void* stream)
 		// if the request fails, the parts are still present on server side!
 		// to be able to delete the parts, the writer handle must remain in
 		// the list of active handles.
-		RETURN_ON_ERROR(complete_outcome, "Error completing upload while closing stream", kCloseEOF);
+		RETURN_ON_ERROR(complete_outcome, "Error completing upload while closing stream", kFailure);
 
 		EraseRemove(active_writer_handles, writer_h_it);
 
-		return kCloseSuccess;
+		return kSuccess;
 	}
 
 	LogError("Cannot identify stream");
-	return kCloseEOF;
+	return kFailure;
 }
 
 int driver_fseek(void* stream, long long int offset, int whence)
@@ -1831,20 +1831,20 @@ int driver_remove(const char* filename)
 
 int driver_rmdir(const char* filename)
 {
-	KH_S3_NOT_CONNECTED(kFailure);
+	KH_S3_NOT_CONNECTED(kOtherFailure);
 
-	ERROR_ON_NULL_ARG(filename, kFailure);
+	ERROR_ON_NULL_ARG(filename, kOtherFailure);
 	spdlog::debug("rmdir {}", filename);
 
 	spdlog::debug("Remove dir (does nothing...)");
-	return kSuccess;
+	return kOtherSuccess;
 }
 
 int driver_mkdir(const char* filename)
 {
-	KH_S3_NOT_CONNECTED(kFailure);
+	KH_S3_NOT_CONNECTED(kOtherFailure);
 
-	ERROR_ON_NULL_ARG(filename, kFailure);
+	ERROR_ON_NULL_ARG(filename, kOtherFailure);
 	spdlog::debug("mkdir {}", filename);
 
 	return 1;
@@ -1859,16 +1859,16 @@ long long int driver_diskFreeSpace(const char* filename)
 
 int driver_copyToLocal(const char* sSourceFilePathName, const char* sDestFilePathName)
 {
-	KH_S3_NOT_CONNECTED(kFailure);
-	ERROR_ON_NULL_ARG(sSourceFilePathName, kFailure);
-	ERROR_ON_NULL_ARG(sDestFilePathName, kFailure);
+	KH_S3_NOT_CONNECTED(kOtherFailure);
+	ERROR_ON_NULL_ARG(sSourceFilePathName, kOtherFailure);
+	ERROR_ON_NULL_ARG(sDestFilePathName, kOtherFailure);
 
 	spdlog::debug("copyToLocal {} {}", sSourceFilePathName, sDestFilePathName);
 
 	// try opening the online source file
-	NAMES_OR_ERROR(sSourceFilePathName, kFailure);
+	NAMES_OR_ERROR(sSourceFilePathName, kOtherFailure);
 	auto make_reader_outcome = MakeReaderPtr(names.bucket_, names.object_);
-	RETURN_ON_ERROR(make_reader_outcome, "Error while opening remote file", kFailure);
+	RETURN_ON_ERROR(make_reader_outcome, "Error while opening remote file", kOtherFailure);
 
 	// open local file
 	std::ofstream file_stream(sDestFilePathName, std::ios::binary);
@@ -1877,7 +1877,7 @@ int driver_copyToLocal(const char* sSourceFilePathName, const char* sDestFilePat
 		std::ostringstream oss;
 		oss << "Failed to open local file for writing: " << sDestFilePathName;
 		LogError(oss.str());
-		return kFailure;
+		return kOtherFailure;
 	}
 
 	auto read_and_write = [](const Reader& from, size_t part, std::ofstream& to_file) -> bool
@@ -1947,24 +1947,24 @@ int driver_copyToLocal(const char* sSourceFilePathName, const char* sDestFilePat
 		}
 		spdlog::debug("Successful file removal.");
 
-		return kFailure;
+		return kOtherFailure;
 	}
 
 	spdlog::debug("Successful local copy of remote file.");
 
-	return kSuccess;
+	return kOtherSuccess;
 }
 
 int driver_copyFromLocal(const char* sSourceFilePathName, const char* sDestFilePathName)
 {
 	KH_S3_NOT_CONNECTED(kBadSize);
 
-	ERROR_ON_NULL_ARG(sSourceFilePathName, kFailure);
-	ERROR_ON_NULL_ARG(sDestFilePathName, kFailure);
+	ERROR_ON_NULL_ARG(sSourceFilePathName, kOtherFailure);
+	ERROR_ON_NULL_ARG(sDestFilePathName, kOtherFailure);
 
 	spdlog::debug("copyFromLocal {} {}", sSourceFilePathName, sDestFilePathName);
 
-	NAMES_OR_ERROR(sDestFilePathName, kFailure);
+	NAMES_OR_ERROR(sDestFilePathName, kOtherFailure);
 
 	// Configuration de la requête pour envoyer l'objet
 	Aws::S3::Model::PutObjectRequest object_request;
@@ -1982,10 +1982,10 @@ int driver_copyFromLocal(const char* sSourceFilePathName, const char* sDestFileP
 	if (!put_object_outcome.IsSuccess())
 	{
 		spdlog::error("Error during file upload: {}", put_object_outcome.GetError().GetMessage());
-		return kFailure;
+		return kOtherFailure;
 	}
 
-	return kSuccess;
+	return kOtherSuccess;
 }
 
 /**
@@ -2007,23 +2007,23 @@ int driver_copyFromLocal(const char* sSourceFilePathName, const char* sDestFileP
  * On success, all source objects are deleted (destination is never deleted).
  */
 int driver_concat(const char *destfilename, const char **sourcefilenames, size_t sourcefilecount) {
-    KH_S3_NOT_CONNECTED(kFailure);
-    ERROR_ON_NULL_ARG(destfilename, kFailure);
-    ERROR_ON_NULL_ARG(sourcefilenames, kFailure);
+    KH_S3_NOT_CONNECTED(kOtherFailure);
+    ERROR_ON_NULL_ARG(destfilename, kOtherFailure);
+    ERROR_ON_NULL_ARG(sourcefilenames, kOtherFailure);
 
     if (sourcefilecount == 0)
     {
         LogError("driver_concat: no source files");
-        return kFailure;
+        return kOtherFailure;
     }
 
-    NAMES_OR_ERROR(destfilename, kFailure);
+    NAMES_OR_ERROR(destfilename, kOtherFailure);
 
     size_t sp = 0;
     if (IsMultifile(names.object_, sp))
     {
         LogError("driver_concat: destination must be a single object");
-        return kFailure;
+        return kOtherFailure;
     }
 
     constexpr long long MIN_PART = static_cast<long long>(Writer::buff_min_); // 5 MiB
@@ -2044,19 +2044,19 @@ int driver_concat(const char *destfilename, const char **sourcefilenames, size_t
 
     for (size_t i = 0; i < sourcefilecount; ++i)
     {
-        ERROR_ON_NULL_ARG(sourcefilenames[i], kFailure);
+        ERROR_ON_NULL_ARG(sourcefilenames[i], kOtherFailure);
         auto parsed = ParseS3Uri(sourcefilenames[i]);
-        RETURN_ON_ERROR(parsed, "Error parsing source URI", kFailure);
+        RETURN_ON_ERROR(parsed, "Error parsing source URI", kOtherFailure);
 
         const auto& s = parsed.GetResult();
         if (s.bucket_ != names.bucket_)
         {
             LogError("driver_concat: sources must be in same bucket as destination");
-            return kFailure;
+            return kOtherFailure;
         }
 
         auto head_outcome = HeadObject(s.bucket_, s.object_);
-        RETURN_ON_ERROR(head_outcome, "Error getting source metadata", kFailure);
+        RETURN_ON_ERROR(head_outcome, "Error getting source metadata", kOtherFailure);
 
         const auto& head = head_outcome.GetResult();
         long long size = head.GetContentLength();
@@ -2065,7 +2065,7 @@ int driver_concat(const char *destfilename, const char **sourcefilenames, size_t
         if (size > 0 && total_size > std::numeric_limits<long long>::max() - size)
         {
             LogError("driver_concat: total size overflow");
-            return kFailure;
+            return kOtherFailure;
         }
         total_size += size;
 
@@ -2097,7 +2097,7 @@ int driver_concat(const char *destfilename, const char **sourcefilenames, size_t
         if (!put_outcome.IsSuccess())
         {
             LogBadOutcome(put_outcome, "Error creating empty object");
-            return kFailure;
+            return kOtherFailure;
         }
 
         // Delete sources even if empty
@@ -2119,7 +2119,7 @@ int driver_concat(const char *destfilename, const char **sourcefilenames, size_t
             }
         }
 
-        return delete_ok ? kSuccess : kFailure;
+        return delete_ok ? kOtherSuccess : kOtherFailure;
     }
 
     auto estimate_parts = [&](const Src& s) -> long long {
@@ -2420,7 +2420,7 @@ int driver_concat(const char *destfilename, const char **sourcefilenames, size_t
             {
                 LogError("driver_concat: single source exceeds 10,000-part limit");
                 cleanup_temps(temp_keys);
-                return kFailure;
+                return kOtherFailure;
             }
             total_est += est;
         }
@@ -2434,7 +2434,7 @@ int driver_concat(const char *destfilename, const char **sourcefilenames, size_t
             if (!concat_stage(current, names.object_, level, 0))
             {
                 cleanup_temps(temp_keys);
-                return kFailure;
+                return kOtherFailure;
             }
             break;
         }
@@ -2465,7 +2465,7 @@ int driver_concat(const char *destfilename, const char **sourcefilenames, size_t
             {
                 LogError("driver_concat: grouping failed due to part limit");
                 cleanup_temps(temp_keys);
-                return kFailure;
+                return kOtherFailure;
             }
 
             Aws::String tmp_key = make_temp_key(level, group);
@@ -2476,7 +2476,7 @@ int driver_concat(const char *destfilename, const char **sourcefilenames, size_t
             if (!concat_stage(group_sources, tmp_key, level, group))
             {
                 cleanup_temps(temp_keys);
-                return kFailure;
+                return kOtherFailure;
             }
 
             auto head_outcome = HeadObject(names.bucket_, tmp_key);
@@ -2484,7 +2484,7 @@ int driver_concat(const char *destfilename, const char **sourcefilenames, size_t
             {
                 LogBadOutcome(head_outcome, "Error getting temp object metadata");
                 cleanup_temps(temp_keys);
-                return kFailure;
+                return kOtherFailure;
             }
 
             const auto& head = head_outcome.GetResult();
@@ -2521,7 +2521,7 @@ int driver_concat(const char *destfilename, const char **sourcefilenames, size_t
         }
     }
 
-    return delete_ok ? kSuccess : kFailure;
+    return delete_ok ? kOtherSuccess : kOtherFailure;
 }
 
 bool test_compareFiles(const char* local_file_path_str, const char* s3_uri_str) {
@@ -2559,7 +2559,7 @@ bool test_compareFiles(const char* local_file_path_str, const char* s3_uri_str) 
   s3_content << get_object_outcome.GetResult().GetBody().rdbuf();
 
   // Comparer les contenus
-  auto result = local_content == s3_content.str() ? kSuccess : kFailure;
+  auto result = local_content == s3_content.str() ? kOtherSuccess : kOtherFailure;
 
   return static_cast<bool>(result);
 }

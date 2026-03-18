@@ -143,27 +143,27 @@ TEST(S3DriverTest, Connect) {
   ASSERT_EQ(driver_isConnected(), kFalse);
 
   // call connect and check connection
-  ASSERT_EQ(driver_connect(), kSuccess);
+  ASSERT_EQ(driver_connect(), kOtherSuccess);
   ASSERT_EQ(driver_isConnected(), kTrue);
 
   // call disconnect and check connection
-  ASSERT_EQ(driver_disconnect(), kSuccess);
+  ASSERT_EQ(driver_disconnect(), kOtherSuccess);
   ASSERT_EQ(driver_isConnected(), kFalse);
 }
 
 TEST(S3DriverTest, Disconnect) {
-  ASSERT_EQ(driver_connect(), kSuccess);
-  ASSERT_EQ(driver_disconnect(), kSuccess);
+  ASSERT_EQ(driver_connect(), kOtherSuccess);
+  ASSERT_EQ(driver_disconnect(), kOtherSuccess);
   ASSERT_EQ(driver_isConnected(), kFalse);
 }
 
 TEST(S3DriverTest, GetFileSize) {
-  ASSERT_EQ(driver_connect(), kSuccess);
+  ASSERT_EQ(driver_connect(), kOtherSuccess);
   ASSERT_EQ(
       driver_getFileSize(
           "s3://diod-data-di-jupyterhub/khiops_data/samples/Adult/Adult.txt"),
       5585568);
-  ASSERT_EQ(driver_disconnect(), kSuccess);
+  ASSERT_EQ(driver_disconnect(), kOtherSuccess);
 }
 /*
 // TODO
@@ -184,20 +184,20 @@ kSuccess);
 */
 
 TEST(S3DriverTest, FileExists) {
-  ASSERT_EQ(driver_connect(), kSuccess);
+  ASSERT_EQ(driver_connect(), kOtherSuccess);
   ASSERT_EQ(
       driver_exist(
           "s3://diod-data-di-jupyterhub/khiops_data/samples/Adult/Adult.txt"),
-      kSuccess);
-  ASSERT_EQ(driver_disconnect(), kSuccess);
+      kOtherSuccess);
+  ASSERT_EQ(driver_disconnect(), kOtherSuccess);
 }
 
 TEST(S3DriverTest, DirExists) {
-  ASSERT_EQ(driver_connect(), kSuccess);
+  ASSERT_EQ(driver_connect(), kOtherSuccess);
   ASSERT_EQ(
       driver_exist("s3://diod-data-di-jupyterhub/khiops_data/samples/Adult/"),
-      kSuccess);
-  ASSERT_EQ(driver_disconnect(), kSuccess);
+      kOtherSuccess);
+  ASSERT_EQ(driver_disconnect(), kOtherSuccess);
 }
 
 #ifndef _WIN32
@@ -205,7 +205,7 @@ TEST(S3DriverTest, DirExists) {
 TEST(S3DriverTest, DriverConnectMissingCredentialsFailure) {
   auto env = boost::this_process::environment();
   env["AWS_CONFIG_FILE"] = "/tmp/noconfig";
-  ASSERT_EQ(driver_connect(), kFailure);
+  ASSERT_EQ(driver_connect(), kOtherFailure);
   env.erase("AWS_CONFIG_FILE");
 }
 
@@ -237,15 +237,15 @@ kSuccess); cleanup_bad_credentials();
 #endif
 
 TEST(S3DriverTest, RmDir) {
-  ASSERT_EQ(driver_connect(), kSuccess);
-  ASSERT_EQ(driver_rmdir("dummy"), kSuccess);
-  ASSERT_EQ(driver_disconnect(), kSuccess);
+  ASSERT_EQ(driver_connect(), kOtherSuccess);
+  ASSERT_EQ(driver_rmdir("dummy"), kOtherSuccess);
+  ASSERT_EQ(driver_disconnect(), kOtherSuccess);
 }
 
 TEST(S3DriverTest, mkDir) {
-  ASSERT_EQ(driver_connect(), kSuccess);
-  ASSERT_EQ(driver_mkdir("dummy"), kSuccess);
-  ASSERT_EQ(driver_disconnect(), kSuccess);
+  ASSERT_EQ(driver_connect(), kOtherSuccess);
+  ASSERT_EQ(driver_mkdir("dummy"), kOtherSuccess);
+  ASSERT_EQ(driver_disconnect(), kOtherSuccess);
 }
 
 TEST(S3DriverTest, GetSystemPreferredBufferSize) {

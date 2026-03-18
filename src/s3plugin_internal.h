@@ -9,14 +9,23 @@
 
 namespace s3plugin
 {
-constexpr int kSuccess{1};
-constexpr int kFailure{0};
+	constexpr int kSuccess{0};
+	constexpr int kFailure{-1};
 
-constexpr int kCloseSuccess{0};
-constexpr int kCloseEOF{-1};
+	constexpr int kOtherSuccess{1};
+	constexpr int kOtherFailure{0};	
 
-constexpr int kFalse{0};
-constexpr int kTrue{1};
+	constexpr int kTrue{1};
+	constexpr int kFalse{0};
+
+/*
+constexpr int kSuccess = 0;
+constexpr int kFailure = -1;
+constexpr int kOtherSuccess = 1;
+constexpr int kOtherFailure = 0;
+constexpr int kTrue = 1;
+constexpr int kFalse = 0;
+*/
 
 constexpr long long kBadSize{-1};
 
