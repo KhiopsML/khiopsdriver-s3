@@ -722,7 +722,7 @@ const char* driver_getScheme()
 
 int driver_isReadOnly()
 {
-	return 0;
+	return kFalse;
 }
 
 int driver_connect()
@@ -1190,15 +1190,15 @@ SizeOutcome getFileSize(const Aws::String& bucket_name, const Aws::String& objec
 
 long long int driver_getFileSize(const char* filename)
 {
-	KH_S3_NOT_CONNECTED(kBadSize);
+	KH_S3_NOT_CONNECTED(kFailure);
 
-	ERROR_ON_NULL_ARG(filename, kBadSize);
+	ERROR_ON_NULL_ARG(filename, kFailure);
 
 	spdlog::debug("getFileSize {}", filename);
 
-	NAMES_OR_ERROR(filename, kBadSize);
+	NAMES_OR_ERROR(filename, kFailure);
 	const auto maybe_file_size = getFileSize(names.bucket_, names.object_);
-	RETURN_ON_ERROR(maybe_file_size, "Error getting file size", kBadSize);
+	RETURN_ON_ERROR(maybe_file_size, "Error getting file size", kFailure);
 
 	return maybe_file_size.GetResult();
 }
@@ -1567,14 +1567,14 @@ int driver_fclose(void* stream)
 
 int driver_fseek(void* stream, long long int offset, int whence)
 {
-	KH_S3_NOT_CONNECTED(kBadSize);
+	KH_S3_NOT_CONNECTED(kFailure);
 
 	constexpr long long max_val = std::numeric_limits<long long>::max();
 
-	ERROR_ON_NULL_ARG(stream, kBadSize);
+	ERROR_ON_NULL_ARG(stream, kFailure);
 
 	// confirm stream's presence
-	FIND_HANDLE_OR_ERROR(active_reader_handles, stream, kBadSize);
+	FIND_HANDLE_OR_ERROR(active_reader_handles, stream, kFailure);
 	auto& h = *h_ptr;
 
 	// if (HandleType::kRead != stream_h->type)
@@ -1598,7 +1598,7 @@ int driver_fseek(void* stream, long long int offset, int whence)
 		if (offset > max_val - h.offset_)
 		{
 			LogError("Signed overflow prevented");
-			return kBadSize;
+			return kFailure;
 		}
 		computed_offset = h.offset_ + offset;
 		break;
@@ -1609,26 +1609,26 @@ int driver_fseek(void* stream, long long int offset, int whence)
 			if (offset > max_val - minus1)
 			{
 				LogError("Signed overflow prevented");
-				return kBadSize;
+				return kFailure;
 			}
 		}
 		if ((offset == std::numeric_limits<long long>::min()) && (h.total_size_ == 0))
 		{
 			LogError("Signed overflow prevented");
-			return kBadSize;
+			return kFailure;
 		}
 
 		computed_offset = (h.total_size_ == 0) ? offset : h.total_size_ + offset;
 		break;
 	default:
 		LogError("Invalid seek mode " + std::to_string(whence));
-		return kBadSize;
+		return kFailure;
 	}
 
 	if (computed_offset < 0)
 	{
 		LogError("Invalid seek offset " + std::to_string(computed_offset));
-		return kBadSize;
+		return kFailure;
 	}
 	h.offset_ = computed_offset;
 	return 0;
@@ -1646,21 +1646,21 @@ const char* driver_getlasterror()
 
 long long int driver_fread(void* ptr, size_t size, size_t count, void* stream)
 {
-	KH_S3_NOT_CONNECTED(kBadSize);
+	KH_S3_NOT_CONNECTED(kFailure);
 
-	ERROR_ON_NULL_ARG(stream, kBadSize);
-	ERROR_ON_NULL_ARG(ptr, kBadSize);
+	ERROR_ON_NULL_ARG(stream, kFailure);
+	ERROR_ON_NULL_ARG(ptr, kFailure);
 
 	if (0 == size)
 	{
 		LogError("Error passing size of 0");
-		return kBadSize;
+		return kFailure;
 	}
 
 	spdlog::debug("fread {} {} {} {}", ptr, size, count, stream);
 
 	// confirm stream's presence
-	FIND_HANDLE_OR_ERROR(active_reader_handles, stream, kBadSize);
+	FIND_HANDLE_OR_ERROR(active_reader_handles, stream, kFailure);
 	auto& h = *h_ptr;
 
 	const tOffset offset = h.offset_;
@@ -1675,14 +1675,14 @@ long long int driver_fread(void* ptr, size_t size, size_t count, void* stream)
 	if (WillSizeCountProductOverflow(size, count))
 	{
 		LogError("product size * count is too large, would overflow");
-		return kBadSize;
+		return kFailure;
 	}
 
 	tOffset to_read{static_cast<tOffset>(size * count)};
 	if (offset > std::numeric_limits<long long>::max() - to_read)
 	{
 		LogError("signed overflow prevented on reading attempt");
-		return kBadSize;
+		return kFailure;
 	}
 	// end of overflow prevention
 
@@ -1691,7 +1691,7 @@ long long int driver_fread(void* ptr, size_t size, size_t count, void* stream)
 	// if (offset >= total_size)
 	// {
 	// 	LogError("Error trying to read more bytes while already out of bounds");
-	// 	return kBadSize;
+	// 	return kFailure;
 	// }
 
 	// // normal cases
@@ -1707,27 +1707,27 @@ long long int driver_fread(void* ptr, size_t size, size_t count, void* stream)
 	// }
 
 	auto read_outcome = ReadBytesInFile(h, reinterpret_cast<unsigned char*>(ptr), to_read);
-	RETURN_ON_ERROR(read_outcome, "Error while reading from file", kBadSize);
+	RETURN_ON_ERROR(read_outcome, "Error while reading from file", kFailure);
 
 	return read_outcome.GetResult();
 }
 
 long long int driver_fwrite(const void* ptr, size_t size, size_t count, void* stream)
 {
-	KH_S3_NOT_CONNECTED(kBadSize);
+	KH_S3_NOT_CONNECTED(kFailure);
 
-	ERROR_ON_NULL_ARG(stream, kBadSize);
-	ERROR_ON_NULL_ARG(ptr, kBadSize);
+	ERROR_ON_NULL_ARG(stream, kFailure);
+	ERROR_ON_NULL_ARG(ptr, kFailure);
 
 	if (0 == size)
 	{
 		LogError("Error passing size 0 to fwrite");
-		return kBadSize;
+		return kFailure;
 	}
 
 	spdlog::debug("fwrite {} {} {} {}", ptr, size, count, stream);
 
-	FIND_HANDLE_OR_ERROR(active_writer_handles, stream, kBadSize);
+	FIND_HANDLE_OR_ERROR(active_writer_handles, stream, kFailure);
 
 	// fast exit for 0
 	if (0 == count)
@@ -1739,7 +1739,7 @@ long long int driver_fwrite(const void* ptr, size_t size, size_t count, void* st
 	if (WillSizeCountProductOverflow(size, count))
 	{
 		LogError("Error on write: product size * count is too large, would overflow");
-		return kBadSize;
+		return kFailure;
 	}
 
 	const size_t to_write = size * count;
@@ -1775,7 +1775,7 @@ long long int driver_fwrite(const void* ptr, size_t size, size_t count, void* st
 	while (buffer.size() >= WriteFile::buff_min_)
 	{
 		auto outcome = UploadPart(*h_ptr);
-		RETURN_ON_ERROR(outcome, "Error during upload", kBadSize);
+		RETURN_ON_ERROR(outcome, "Error during upload", kFailure);
 
 		// copy remaining data up to capacity
 		buffer.clear();
@@ -1791,7 +1791,7 @@ long long int driver_fwrite(const void* ptr, size_t size, size_t count, void* st
 
 int driver_fflush(void*)
 {
-	KH_S3_NOT_CONNECTED(kBadSize);
+	KH_S3_NOT_CONNECTED(kFailure);
 
 	spdlog::debug("Flushing (does nothing...)");
 	return 0;
@@ -1957,7 +1957,7 @@ int driver_copyToLocal(const char* sSourceFilePathName, const char* sDestFilePat
 
 int driver_copyFromLocal(const char* sSourceFilePathName, const char* sDestFilePathName)
 {
-	KH_S3_NOT_CONNECTED(kBadSize);
+	KH_S3_NOT_CONNECTED(kFailure);
 
 	ERROR_ON_NULL_ARG(sSourceFilePathName, kOtherFailure);
 	ERROR_ON_NULL_ARG(sDestFilePathName, kOtherFailure);

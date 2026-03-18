@@ -442,7 +442,7 @@ public:
   }
 
   void GetFileSize_OneFile_Failure() {
-    ASSERT_EQ(driver_getFileSize(one_file_), kBadSize);
+    ASSERT_EQ(driver_getFileSize(one_file_), kFailure);
   }
 
   void GetFileSize_OneFile_OK(long long test_length) {
@@ -450,7 +450,7 @@ public:
   }
 
   void GetFileSize_Pattern_Failure() {
-    ASSERT_EQ(driver_getFileSize(pattern_), kBadSize);
+    ASSERT_EQ(driver_getFileSize(pattern_), kFailure);
   }
 
   void GetFileSize_Pattern_OK(long long test_length) {
@@ -544,7 +544,7 @@ TEST_F(S3DriverTestFixture, FileExists_Globbing_ContinuationToken) {
 }
 
 TEST_F(S3DriverTestFixture, GetFileSize_InvalidURIs) {
-  CheckInvalidURIs(driver_getFileSize, kBadSize);
+  CheckInvalidURIs(driver_getFileSize, kFailure);
 }
 
 TEST_F(S3DriverTestFixture, GetFileSize_OneFile_Error) {

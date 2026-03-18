@@ -18,17 +18,6 @@ namespace s3plugin
 	constexpr int kTrue{1};
 	constexpr int kFalse{0};
 
-/*
-constexpr int kSuccess = 0;
-constexpr int kFailure = -1;
-constexpr int kOtherSuccess = 1;
-constexpr int kOtherFailure = 0;
-constexpr int kTrue = 1;
-constexpr int kFalse = 0;
-*/
-
-constexpr long long kBadSize{-1};
-
 using tOffset = long long;
 
 struct MultiPartFile
