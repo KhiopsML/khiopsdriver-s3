@@ -5,7 +5,7 @@
 #define S3_PLUGIN_EXPORT
 #include "s3plugin.h"
 #include "s3plugin_internal.h"
-#include "contrib/matching.h"
+#include "khiops_driver_common/contrib.hpp"
 #include "contrib/ini.h"
 
 #include "spdlog/spdlog.h"
@@ -639,7 +639,7 @@ FilterOutcome FilterList(const Aws::String& bucket, const Aws::String& pattern, 
 		const auto& list_result = outcome.GetResult();
 		const auto& objects = list_result.GetContents();
 		std::copy_if(objects.begin(), objects.end(), std::back_inserter(res),
-			     [&](const S3Object& obj) { return utils::gitignore_glob_match(obj.GetKey(), pattern); });
+			     [&](const S3Object& obj) { return khiops_driver_common::util::glob::GitignoreGlobMatch(obj.GetKey(), pattern); });
 		continuation_token = list_result.GetContinuationToken();
 
 	} while (!continuation_token.empty());

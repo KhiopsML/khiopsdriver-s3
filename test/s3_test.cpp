@@ -1,6 +1,6 @@
 #include "s3plugin.h"
 #include "s3plugin_internal.h"
-#include "contrib/matching.h"
+#include "khiops_driver_common/contrib.hpp"
 
 // Use mocking examples from
 // https://github.com/aws/aws-sdk-cpp/blob/main/tests/aws-cpp-sdk-s3-unit-tests/S3UnitTests.cpp
@@ -29,11 +29,11 @@ void TestPatternMatching(const std::vector<std::string> &must_match,
                          const std::vector<std::string> &no_match,
                          const std::string &pattern) {
   for (auto &s : must_match) {
-    ASSERT_TRUE(utils::gitignore_glob_match(s, pattern));
+    ASSERT_TRUE(khiops_driver_common::util::glob::GitignoreGlobMatch(s, pattern));
   }
 
   for (auto &s : no_match) {
-    ASSERT_FALSE(utils::gitignore_glob_match(s, pattern));
+    ASSERT_FALSE(khiops_driver_common::util::glob::GitignoreGlobMatch(s, pattern));
   }
 }
 

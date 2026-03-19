@@ -18,7 +18,7 @@ find_package(
   AWSSDK CONFIG
   COMPONENTS core s3
   REQUIRED)
-add_executable(s3_test s3_test.cpp drivertest.cpp)
+add_executable(s3_test s3_test.cpp drivertest.cpp ${CMAKE_SOURCE_DIR}/shared/src/khiops_driver_common/contrib.hpp)
 
 target_compile_options(
   s3_test
@@ -33,7 +33,7 @@ target_include_directories(
   s3_test
   PRIVATE ${${PROJECT_NAME}_SOURCE_DIR}/src
   PRIVATE ${AWSSDK_INCLUDE_DIRS}
-  PRIVATE ${${PROJECT_NAME}_SOURCE_DIR}/src/contrib)
+  PRIVATE ${${PROJECT_NAME}_SOURCE_DIR}/shared/src)
 target_link_libraries(s3_test PRIVATE ${AWSSDK_LIBRARIES})
 
 target_link_libraries(s3_test PRIVATE GTest::gtest GTest::gmock
