@@ -47,19 +47,19 @@ using s3plugin::logging::getLogger;
 
 using S3Object = Aws::S3::Model::Object;
 
-int bIsConnected = false;
+static int bIsConnected = false;
 
 constexpr const char *version = DRIVER_VERSION;
-constexpr const char* KHIOPS_S3 = "KHIOPS_S3";
+constexpr const char *KHIOPS_S3 = "KHIOPS_S3";
 
-Aws::SDKOptions options;
-Aws::UniquePtr<Aws::S3::S3Client> client;
+static Aws::SDKOptions options;
+static Aws::UniquePtr<Aws::S3::S3Client> client;
 
 // Global bucket name
-Aws::String globalBucketName = "";
+static Aws::String globalBucketName = "";
 
-HandleContainer<ReaderPtr> active_reader_handles;
-HandleContainer<WriterPtr> active_writer_handles;
+static HandleContainer<ReaderPtr> active_reader_handles;
+static HandleContainer<WriterPtr> active_writer_handles;
 
 // test utilities
 
