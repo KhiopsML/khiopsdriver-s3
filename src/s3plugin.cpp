@@ -1629,7 +1629,6 @@ const char* driver_getlasterror()
       return nullptr;
     }
     return logstring.c_str();
-	return NULL;
 }
 
 long long int driver_fread(void* ptr, size_t size, size_t count, void* stream)
