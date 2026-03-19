@@ -94,14 +94,6 @@ void *test_getActiveReaderHandles() { return &active_reader_handles; }
 
 void *test_getActiveWriterHandles() { return &active_writer_handles; }
 
-template <typename R, typename E>
-void LogBadOutcome(const Aws::Utils::Outcome<R, E> &outcome,
-                   const Aws::String &msg) {
-  Aws::OStringStream os;
-  os << msg << ": " << outcome.GetError().GetMessage();
-  getLogger()->error(os.str());
-}
-
 template <typename RequestType>
 RequestType MakeBaseRequest(const Aws::String &bucket,
                             const Aws::String &object) {
@@ -1442,8 +1434,7 @@ int driver_fclose(void *stream) {
     // to be able to delete the parts, the writer handle must remain in
     // the list of active handles.
     if (!((complete_outcome)).IsSuccess()) {
-      LogBadOutcome((complete_outcome),
-                    ("Error completing upload while closing stream"));
+      getLogger()->error("Error completing upload while closing stream");
       return (kFailure);
     }
 
@@ -1837,7 +1828,7 @@ int driver_copyToLocal(const char *sSourceFilePathName,
                                MakeByteRange(start, end));
       auto get_outcome = client->GetObject(request);
       if (!((get_outcome)).IsSuccess()) {
-        LogBadOutcome((get_outcome), ("Error while downloading file content"));
+        getLogger()->error("Error while downloading file content");
         return (false);
       }
 
@@ -2027,7 +2018,7 @@ int driver_concat(const char *destfilename, const char **sourcefilenames,
 
     auto head_outcome = HeadObject(s.bucket_, s.object_);
     if (!((head_outcome)).IsSuccess()) {
-      LogBadOutcome((head_outcome), ("Error getting source metadata"));
+      getLogger()->error("Error getting source metadata");
       return (kOtherFailure);
     }
 
@@ -2065,7 +2056,7 @@ int driver_concat(const char *destfilename, const char **sourcefilenames,
 
     auto put_outcome = client->PutObject(req);
     if (!put_outcome.IsSuccess()) {
-      LogBadOutcome(put_outcome, "Error creating empty object");
+      getLogger()->error("Error creating empty object");
       return kOtherFailure;
     }
 
@@ -2341,7 +2332,7 @@ int driver_concat(const char *destfilename, const char **sourcefilenames,
     auto complete = client->CompleteMultipartUpload(
         MakeCompleteMultipartUploadRequest(*writer));
     if (!complete.IsSuccess()) {
-      LogBadOutcome(complete, "Error completing concat stage");
+      getLogger()->error("Error completing concat stage");
       abort_upload();
       return false;
     }
@@ -2420,7 +2411,7 @@ int driver_concat(const char *destfilename, const char **sourcefilenames,
 
       auto head_outcome = HeadObject(names.bucket_, tmp_key);
       if (!head_outcome.IsSuccess()) {
-        LogBadOutcome(head_outcome, "Error getting temp object metadata");
+        getLogger()->error("Error getting temp object metadata");
         cleanup_temps(temp_keys);
         return kOtherFailure;
       }
