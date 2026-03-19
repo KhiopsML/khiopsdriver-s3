@@ -6,9 +6,10 @@
 #include "s3plugin.h"
 #include "s3plugin_internal.h"
 #include "khiops_driver_common/contrib.hpp"
+#include "khiops_driver_common/logging.hpp"
 #include "contrib/ini.h"
 
-#include "spdlog/spdlog.h"
+#include "logging.hpp"
 
 #include <aws/core/Aws.h>
 #include <aws/core/auth/AWSCredentials.h>
@@ -42,6 +43,8 @@
 using namespace Aws::Utils::Logging;
 using namespace s3plugin;
 
+using s3plugin::logging::getLogger;
+
 using S3Object = Aws::S3::Model::Object;
 
 int bIsConnected = false;
@@ -57,8 +60,6 @@ Aws::String globalBucketName = "";
 
 HandleContainer<ReaderPtr> active_reader_handles;
 HandleContainer<WriterPtr> active_writer_handles;
-
-Aws::String last_error;
 
 constexpr const char* nullptr_msg_stub = "Error passing null pointer to ";
 
@@ -101,7 +102,7 @@ void* test_getActiveWriterHandles()
 #define KH_S3_NOT_CONNECTED(err_val)                                                                                   \
 	if (kFalse == bIsConnected)                                                                                    \
 	{                                                                                                              \
-		LogError("Error: Driver is not connected.");                                                           \
+		getLogger()->error("Error: Driver is not connected.");                                                           \
 		return (err_val);                                                                                      \
 	}
 
@@ -110,7 +111,7 @@ void* test_getActiveWriterHandles()
 	{                                                                                                              \
 		Aws::OStringStream os;                                                                                 \
 		os << nullptr_msg_stub << __func__;                                                                    \
-		LogError(os.str());                                                                                    \
+		getLogger()->error(os.str());                                                                                    \
 		return (err_val);                                                                                      \
 	}
 
@@ -118,7 +119,7 @@ void* test_getActiveWriterHandles()
 	auto stream##_it = FindHandle((container), (stream));                                                          \
 	if (stream##_it == container.end())                                                                            \
 	{                                                                                                              \
-		LogError("Cannot identify stream");                                                                    \
+		getLogger()->error("Cannot identify stream");                                                                    \
 		return (errval);                                                                                       \
 	}                                                                                                              \
 	auto& h_ptr = *stream##_it;
@@ -153,17 +154,11 @@ void* test_getActiveWriterHandles()
 	ERROR_ON_NAMES(maybe_parsed_names, (err_val));                                                                 \
 	auto& names = maybe_parsed_names.GetResult();
 
-void LogError(const Aws::String& msg)
-{
-	spdlog::error(msg);
-	last_error = std::move(msg);
-}
-
 template <typename R, typename E> void LogBadOutcome(const Aws::Utils::Outcome<R, E>& outcome, const Aws::String& msg)
 {
 	Aws::OStringStream os;
 	os << msg << ": " << outcome.GetError().GetMessage();
-	LogError(os.str());
+	getLogger()->error(os.str());
 }
 
 template <typename RequestType> RequestType MakeBaseRequest(const Aws::String& bucket, const Aws::String& object)
@@ -387,7 +382,7 @@ SizeOutcome ReadBytesInFile(MultiPartFile& multifile, unsigned char* buffer, tOf
       (greater_than_offset_it == cumul_sizes.end()) ? cumul_sizes.back()
                                                     : *greater_than_offset_it;
 
-	spdlog::debug("Use item {} to read @ {} (end = {})", idx, offset, range_end_for_log);
+	getLogger()->debug("Use item {} to read @ {} (end = {})", idx, offset, range_end_for_log);
 
 	auto read_range_and_update = [&](const Aws::String& filename, tOffset start, tOffset end) -> SizeOutcome
 	{
@@ -405,7 +400,7 @@ SizeOutcome ReadBytesInFile(MultiPartFile& multifile, unsigned char* buffer, tOf
 
 		tOffset actual_read = download_outcome.GetResult();
 
-		spdlog::debug("read = {}", actual_read);
+		getLogger()->debug("read = {}", actual_read);
 
 		bytes_read += actual_read;
 		buffer_pos += actual_read;
@@ -413,7 +408,7 @@ SizeOutcome ReadBytesInFile(MultiPartFile& multifile, unsigned char* buffer, tOf
 
 		if (actual_read < (end - start + 1) /*expected read*/)
 		{
-			spdlog::debug("End of file encountered");
+			getLogger()->debug("End of file encountered");
 			to_read = 0;
 		}
 		else
@@ -483,7 +478,7 @@ SizeOutcome ReadBytesInFile(MultiPartFile& multifile, unsigned char* buffer, tOf
 
 // 	if (!outcome.IsSuccess())
 // 	{
-// 		spdlog::error("PutObjectBuffer: {}", outcome.GetError().GetMessage());
+// 		getLogger()->error("PutObjectBuffer: {}", outcome.GetError().GetMessage());
 // 	}
 
 // 	return outcome.IsSuccess();
@@ -498,7 +493,7 @@ ParseURIOutcome ParseS3Uri(const Aws::String& s3_uri)
 		return SimpleError{static_cast<int>(Aws::S3::S3Errors::INVALID_PARAMETER_VALUE),
 				   "Invalid S3 URI: " + s3_uri};
 		//{"", "", "Invalid S3 URI: " + s3_uri};
-		// spdlog::error("Invalid S3 URI: {}", s3_uri);
+		// getLogger()->error("Invalid S3 URI: {}", s3_uri);
 		// return false;
 	}
 
@@ -509,7 +504,7 @@ ParseURIOutcome ParseS3Uri(const Aws::String& s3_uri)
 				   "Invalid S3 URI, missing object name: " + s3_uri};
 		//{"", "", "Invalid S3 URI, missing object name: " +
 		// s3_uri};
-		// spdlog::error("Invalid S3 URI, missing object name: {}", s3_uri);
+		// getLogger()->error("Invalid S3 URI, missing object name: {}", s3_uri);
 		// return false;
 	}
 
@@ -537,7 +532,7 @@ ParseURIOutcome ParseS3Uri(const Aws::String& s3_uri)
 //     bucket_name = globalBucketName;
 //     return;
 //   }
-//   spdlog::critical("No bucket specified, and GCS_BUCKET_NAME is not set!");
+//   getLogger()->critical("No bucket specified, and GCS_BUCKET_NAME is not set!");
 // }
 
 std::string ToLower(const std::string &str) {
@@ -569,10 +564,10 @@ Aws::String GetEnvironmentVariableOrDefault(const Aws::String& variable_name, co
       low_key.find("password") != std::string::npos ||
       low_key.find("key") != std::string::npos ||
       low_key.find("secret") != std::string::npos) {
-    spdlog::debug("No {} specified, using **REDACTED** as default.",
+    getLogger()->debug("No {} specified, using **REDACTED** as default.",
                   variable_name);
   } else {
-    spdlog::debug("No {} specified, using '{}' as default.", variable_name,
+    getLogger()->debug("No {} specified, using '{}' as default.", variable_name,
                   default_value);
   }
 
@@ -581,7 +576,7 @@ Aws::String GetEnvironmentVariableOrDefault(const Aws::String& variable_name, co
 
 bool IsMultifile(const Aws::String& pattern, size_t& first_special_char_idx)
 {
-	spdlog::debug("Parse multifile pattern {}", pattern);
+	getLogger()->debug("Parse multifile pattern {}", pattern);
 
 	constexpr auto special_chars = "*?![^";
 
@@ -590,17 +585,17 @@ bool IsMultifile(const Aws::String& pattern, size_t& first_special_char_idx)
 	while (found_at != std::string::npos)
 	{
 		const char found = pattern[found_at];
-		spdlog::debug("special char {} found at {}", found, found_at);
+		getLogger()->debug("special char {} found at {}", found, found_at);
 
 		if (found_at > 0 && pattern[found_at - 1] == '\\')
 		{
-			spdlog::debug("preceded by a \\, so not so special");
+			getLogger()->debug("preceded by a \\, so not so special");
 			from_offset = found_at + 1;
 			found_at = pattern.find_first_of(special_chars, from_offset);
 		}
 		else
 		{
-			spdlog::debug("not preceded by a \\, so really a special char");
+			getLogger()->debug("not preceded by a \\, so really a special char");
 			first_special_char_idx = found_at;
 			return true;
 		}
@@ -729,7 +724,7 @@ int driver_connect()
 {
 	if (kTrue == bIsConnected)
 	{
-		spdlog::debug("Driver is already connected");
+		getLogger()->debug("Driver is already connected");
 		return kOtherSuccess;
 	}
 
@@ -739,15 +734,7 @@ int driver_connect()
 		return (ifile.is_open());
 	};
 
-	const auto loglevel = GetEnvironmentVariableOrDefault("S3_DRIVER_LOGLEVEL", "info");
-	if (loglevel == "debug")
-		spdlog::set_level(spdlog::level::debug);
-	else if (loglevel == "trace")
-		spdlog::set_level(spdlog::level::trace);
-	else
-		spdlog::set_level(spdlog::level::info);
-
-	spdlog::debug("Connect {}", loglevel);
+	getLogger()->debug("Connect");
 
 	// Configuration: we honor both standard AWS config files and environment
 	// variables If both configuration files and environment variables are set
@@ -773,14 +760,14 @@ int driver_connect()
 		//                                 .string();
 
 		const Aws::String configFile = GetEnvironmentVariableOrDefault("AWS_CONFIG_FILE", defaultConfig);
-		spdlog::debug("Conf file = {}", configFile);
+		getLogger()->debug("Conf file = {}", configFile);
 
 		if (file_exists(configFile))
 		{
 			// if (std::filesystem::exists(std::filesystem::path(configFile))) {
 			const Aws::String profile = GetEnvironmentVariableOrDefault("AWS_PROFILE", "default");
 
-			spdlog::debug("Profile = {}", profile);
+			getLogger()->debug("Profile = {}", profile);
 
 			const Aws::String profileSection = (profile != "default") ? "profile " + profile : profile;
 
@@ -795,14 +782,14 @@ int driver_connect()
 			{
 				s3endpoint = std::move(confEndpoint);
 			}
-			spdlog::debug("Endpoint = {}", s3endpoint);
+			getLogger()->debug("Endpoint = {}", s3endpoint);
 
 			Aws::String confRegion = ini.get(profileSection).get("region");
 			if (!confRegion.empty())
 			{
 				s3region = std::move(confRegion);
 			}
-			spdlog::debug("Region = {}", s3region);
+			getLogger()->debug("Region = {}", s3region);
 		}
 		else if (configFile != defaultConfig)
 		{
@@ -827,7 +814,7 @@ int driver_connect()
 	s3secretKey = GetEnvironmentVariableOrDefault("AWS_SECRET_ACCESS_KEY", s3secretKey);
 	if ((s3accessKey != "" && s3secretKey == "") || (s3accessKey == "" && s3secretKey != ""))
 	{
-		LogError("Access key and secret configuration is only permitted "
+		getLogger()->error("Access key and secret configuration is only permitted "
 			 "when both values are provided.");
 		return false;
 	}
@@ -902,7 +889,7 @@ int driver_disconnect()
 			{
 				os << outcome.GetError().GetMessage() << '\n';
 			}
-			LogError(os.str());
+			getLogger()->error(os.str());
 
 			return kOtherFailure;
 		}
@@ -941,16 +928,16 @@ int driver_exist(const char* filename)
 	const size_t size = std::strlen(filename);
 	if (0 == size)
 	{
-		LogError("Error passing an empty name to driver_exist");
+		getLogger()->error("Error passing an empty name to driver_exist");
 		return kFalse;
 	}
 
-	spdlog::debug("exist {}", filename);
+	getLogger()->debug("exist {}", filename);
 
 	// const std::string file_uri = filename;
-	// spdlog::debug("exist file_uri {}", file_uri);
+	// getLogger()->debug("exist file_uri {}", file_uri);
 	const char last_char = filename[std::strlen(filename) - 1];
-	spdlog::debug("exist last char {}", last_char);
+	getLogger()->debug("exist last char {}", last_char);
 
 	if (last_char == '/')
 	{
@@ -968,7 +955,7 @@ int driver_fileExists(const char* sFilePathName)
 
 	ERROR_ON_NULL_ARG(sFilePathName, kFalse);
 
-	spdlog::debug("fileExist {}", sFilePathName);
+	getLogger()->debug("fileExist {}", sFilePathName);
 
 	NAMES_OR_ERROR(sFilePathName, kFalse);
 
@@ -999,7 +986,7 @@ int driver_dirExists(const char* sFilePathName)
 
 	ERROR_ON_NULL_ARG(sFilePathName, kFalse);
 
-	spdlog::debug("dirExist {}", sFilePathName);
+	getLogger()->debug("dirExist {}", sFilePathName);
 
 	return kTrue;
 }
@@ -1092,10 +1079,10 @@ SelectObjectsSubset(std::vector<std::string> const &all_objects) {
     }
   }
 
-  spdlog::debug("Selected objects for header detection");
+  getLogger()->debug("Selected objects for header detection");
   for (auto const &name : result) {
-    spdlog::debug(" {}", name);
-    spdlog::info(" {}", name);
+    getLogger()->debug(" {}", name);
+    getLogger()->info(" {}", name);
   }
 
   return result;
@@ -1168,7 +1155,7 @@ SizeOutcome getFileSize(const Aws::String& bucket_name, const Aws::String& objec
 				}
 			} else {
 				// Only check filesize
-				spdlog::debug("Skip header detect {} {} in pattern, expect min {}",
+				getLogger()->debug("Skip header detect {} {} in pattern, expect min {}",
 				              curr_key, file_list[i].GetSize(), header_size);
 				same_header = (header_size <= static_cast<long long>(curr_file.GetSize()));
 				if (same_header) {
@@ -1194,7 +1181,7 @@ long long int driver_getFileSize(const char* filename)
 
 	ERROR_ON_NULL_ARG(filename, kFailure);
 
-	spdlog::debug("getFileSize {}", filename);
+	getLogger()->debug("getFileSize {}", filename);
 
 	NAMES_OR_ERROR(filename, kFailure);
 	const auto maybe_file_size = getFileSize(names.bucket_, names.object_);
@@ -1423,7 +1410,7 @@ UploadOutcome InitiateAppend(Writer& writer, size_t source_bytes_to_copy)
 
 		tOffset actual_read = outcome.GetResult();
 
-		spdlog::debug("copied = {}", actual_read);
+		getLogger()->debug("copied = {}", actual_read);
 	}
 
 	return true;
@@ -1435,7 +1422,7 @@ void* driver_fopen(const char* filename, char mode)
 
 	ERROR_ON_NULL_ARG(filename, nullptr);
 
-	spdlog::debug("fopen {} {}", filename, mode);
+	getLogger()->debug("fopen {} {}", filename, mode);
 
 	NAMES_OR_ERROR(filename, nullptr);
 
@@ -1468,7 +1455,7 @@ void* driver_fopen(const char* filename, char mode)
 			}
 			else
 			{
-				spdlog::debug("No match for the file pattern.");
+				getLogger()->debug("No match for the file pattern.");
 			}
 		}
 		else
@@ -1485,7 +1472,7 @@ void* driver_fopen(const char* filename, char mode)
 			    error.GetErrorType() == Aws::S3::S3Errors::RESOURCE_NOT_FOUND)
 			{
 				// source file not found, fallback to simple write mode
-				spdlog::debug("No source file to append to, falling back to simple write.");
+				getLogger()->debug("No source file to append to, falling back to simple write.");
 				KH_S3_REGISTER_STREAM(Writer, names.bucket_, target,
 						      "Error while opening writer stream");
 			}
@@ -1514,7 +1501,7 @@ void* driver_fopen(const char* filename, char mode)
 		return writer_ptr;
 	}
 	default:
-    	LogError(std::string("Invalid open mode: ") + mode);
+    	getLogger()->error(std::string("Invalid open mode: ") + mode);
 		return nullptr;
 	}
 }
@@ -1533,7 +1520,7 @@ int driver_fclose(void* stream)
 
 	ERROR_ON_NULL_ARG(stream, kFailure);
 
-	spdlog::debug("fclose {}", (void*)stream);
+	getLogger()->debug("fclose {}", (void*)stream);
 
 	KH_S3_FIND_AND_REMOVE(reader, active_reader_handles, stream);
 
@@ -1561,7 +1548,7 @@ int driver_fclose(void* stream)
 		return kSuccess;
 	}
 
-	LogError("Cannot identify stream");
+	getLogger()->error("Cannot identify stream");
 	return kFailure;
 }
 
@@ -1579,11 +1566,11 @@ int driver_fseek(void* stream, long long int offset, int whence)
 
 	// if (HandleType::kRead != stream_h->type)
 	// {
-	//     LogError("Cannot seek on not reading stream");
+	//     getLogger()->error("Cannot seek on not reading stream");
 	//     return kFailure;
 	// }
 
-	spdlog::debug("fseek {} {} {}", stream, offset, whence);
+	getLogger()->debug("fseek {} {} {}", stream, offset, whence);
 
 	// MultiPartFile &h = stream_h->GetReader();
 
@@ -1597,7 +1584,7 @@ int driver_fseek(void* stream, long long int offset, int whence)
 	case std::ios::cur:
 		if (offset > max_val - h.offset_)
 		{
-			LogError("Signed overflow prevented");
+			getLogger()->error("Signed overflow prevented");
 			return kFailure;
 		}
 		computed_offset = h.offset_ + offset;
@@ -1608,26 +1595,26 @@ int driver_fseek(void* stream, long long int offset, int whence)
 			long long minus1 = h.total_size_ - 1;
 			if (offset > max_val - minus1)
 			{
-				LogError("Signed overflow prevented");
+				getLogger()->error("Signed overflow prevented");
 				return kFailure;
 			}
 		}
 		if ((offset == std::numeric_limits<long long>::min()) && (h.total_size_ == 0))
 		{
-			LogError("Signed overflow prevented");
+			getLogger()->error("Signed overflow prevented");
 			return kFailure;
 		}
 
 		computed_offset = (h.total_size_ == 0) ? offset : h.total_size_ + offset;
 		break;
 	default:
-		LogError("Invalid seek mode " + std::to_string(whence));
+		getLogger()->error("Invalid seek mode " + std::to_string(whence));
 		return kFailure;
 	}
 
 	if (computed_offset < 0)
 	{
-		LogError("Invalid seek offset " + std::to_string(computed_offset));
+		getLogger()->error("Invalid seek offset " + std::to_string(computed_offset));
 		return kFailure;
 	}
 	h.offset_ = computed_offset;
@@ -1636,11 +1623,12 @@ int driver_fseek(void* stream, long long int offset, int whence)
 
 const char* driver_getlasterror()
 {
-	spdlog::debug("getlasterror");
-	
-	if (!last_error.empty()) {
-    	return last_error.c_str();
-	}
+	getLogger()->debug("getlasterror");
+	const std::string &logstring = khiops_driver_common::logging::getLastError();
+    if (logstring.empty()) {
+      return nullptr;
+    }
+    return logstring.c_str();
 	return NULL;
 }
 
@@ -1653,11 +1641,11 @@ long long int driver_fread(void* ptr, size_t size, size_t count, void* stream)
 
 	if (0 == size)
 	{
-		LogError("Error passing size of 0");
+		getLogger()->error("Error passing size of 0");
 		return kFailure;
 	}
 
-	spdlog::debug("fread {} {} {} {}", ptr, size, count, stream);
+	getLogger()->debug("fread {} {} {} {}", ptr, size, count, stream);
 
 	// confirm stream's presence
 	FIND_HANDLE_OR_ERROR(active_reader_handles, stream, kFailure);
@@ -1674,14 +1662,14 @@ long long int driver_fread(void* ptr, size_t size, size_t count, void* stream)
 	// prevent overflow
 	if (WillSizeCountProductOverflow(size, count))
 	{
-		LogError("product size * count is too large, would overflow");
+		getLogger()->error("product size * count is too large, would overflow");
 		return kFailure;
 	}
 
 	tOffset to_read{static_cast<tOffset>(size * count)};
 	if (offset > std::numeric_limits<long long>::max() - to_read)
 	{
-		LogError("signed overflow prevented on reading attempt");
+		getLogger()->error("signed overflow prevented on reading attempt");
 		return kFailure;
 	}
 	// end of overflow prevention
@@ -1690,7 +1678,7 @@ long long int driver_fread(void* ptr, size_t size, size_t count, void* stream)
 	// const tOffset total_size = h.total_size_;
 	// if (offset >= total_size)
 	// {
-	// 	LogError("Error trying to read more bytes while already out of bounds");
+	// 	getLogger()->error("Error trying to read more bytes while already out of bounds");
 	// 	return kFailure;
 	// }
 
@@ -1698,12 +1686,12 @@ long long int driver_fread(void* ptr, size_t size, size_t count, void* stream)
 	// if (offset + to_read > total_size)
 	// {
 	// 	to_read = total_size - offset;
-	// 	spdlog::debug("offset {}, req len {} exceeds file size ({}) -> reducing len to {}", offset, to_read,
+	// 	getLogger()->debug("offset {}, req len {} exceeds file size ({}) -> reducing len to {}", offset, to_read,
 	// 		      total_size, to_read);
 	// }
 	// else
 	// {
-	spdlog::debug("offset = {} to_read = {}", offset, to_read);
+	getLogger()->debug("offset = {} to_read = {}", offset, to_read);
 	// }
 
 	auto read_outcome = ReadBytesInFile(h, reinterpret_cast<unsigned char*>(ptr), to_read);
@@ -1721,11 +1709,11 @@ long long int driver_fwrite(const void* ptr, size_t size, size_t count, void* st
 
 	if (0 == size)
 	{
-		LogError("Error passing size 0 to fwrite");
+		getLogger()->error("Error passing size 0 to fwrite");
 		return kFailure;
 	}
 
-	spdlog::debug("fwrite {} {} {} {}", ptr, size, count, stream);
+	getLogger()->debug("fwrite {} {} {} {}", ptr, size, count, stream);
 
 	FIND_HANDLE_OR_ERROR(active_writer_handles, stream, kFailure);
 
@@ -1738,7 +1726,7 @@ long long int driver_fwrite(const void* ptr, size_t size, size_t count, void* st
 	// prevent integer overflow
 	if (WillSizeCountProductOverflow(size, count))
 	{
-		LogError("Error on write: product size * count is too large, would overflow");
+		getLogger()->error("Error on write: product size * count is too large, would overflow");
 		return kFailure;
 	}
 
@@ -1793,7 +1781,7 @@ int driver_fflush(void*)
 {
 	KH_S3_NOT_CONNECTED(kFailure);
 
-	spdlog::debug("Flushing (does nothing...)");
+	getLogger()->debug("Flushing (does nothing...)");
 	return kSuccess;
 }
 
@@ -1803,7 +1791,7 @@ int driver_remove(const char* filename)
 
 	ERROR_ON_NULL_ARG(filename, kFalse);
 
-	spdlog::debug("remove {}", filename);
+	getLogger()->debug("remove {}", filename);
 
 	NAMES_OR_ERROR(filename, kFalse);
 
@@ -1823,7 +1811,7 @@ int driver_remove(const char* filename)
 	if (!outcome.IsSuccess())
 	{
 		auto err = outcome.GetError();
-		spdlog::error("DeleteObject: {} {}", err.GetExceptionName(), err.GetMessage());
+		getLogger()->error("DeleteObject: {} {}", err.GetExceptionName(), err.GetMessage());
 	}
 
 	return outcome.IsSuccess();
@@ -1834,9 +1822,9 @@ int driver_rmdir(const char* filename)
 	KH_S3_NOT_CONNECTED(kOtherFailure);
 
 	ERROR_ON_NULL_ARG(filename, kOtherFailure);
-	spdlog::debug("rmdir {}", filename);
+	getLogger()->debug("rmdir {}", filename);
 
-	spdlog::debug("Remove dir (does nothing...)");
+	getLogger()->debug("Remove dir (does nothing...)");
 	return kOtherSuccess;
 }
 
@@ -1845,14 +1833,14 @@ int driver_mkdir(const char* filename)
 	KH_S3_NOT_CONNECTED(kOtherFailure);
 
 	ERROR_ON_NULL_ARG(filename, kOtherFailure);
-	spdlog::debug("mkdir {}", filename);
+	getLogger()->debug("mkdir {}", filename);
 
 	return kOtherSuccess;
 }
 
 long long int driver_diskFreeSpace(const char* filename)
 {
-	spdlog::debug("diskFreeSpace {}", filename);
+	getLogger()->debug("diskFreeSpace {}", filename);
 
 	return (long long int)5 * 1024 * 1024 * 1024 * 1024;
 }
@@ -1863,7 +1851,7 @@ int driver_copyToLocal(const char* sSourceFilePathName, const char* sDestFilePat
 	ERROR_ON_NULL_ARG(sSourceFilePathName, kOtherFailure);
 	ERROR_ON_NULL_ARG(sDestFilePathName, kOtherFailure);
 
-	spdlog::debug("copyToLocal {} {}", sSourceFilePathName, sDestFilePathName);
+	getLogger()->debug("copyToLocal {} {}", sSourceFilePathName, sDestFilePathName);
 
 	// try opening the online source file
 	NAMES_OR_ERROR(sSourceFilePathName, kOtherFailure);
@@ -1876,7 +1864,7 @@ int driver_copyToLocal(const char* sSourceFilePathName, const char* sDestFilePat
 	{
 		std::ostringstream oss;
 		oss << "Failed to open local file for writing: " << sDestFilePathName;
-		LogError(oss.str());
+		getLogger()->error(oss.str());
 		return kOtherFailure;
 	}
 
@@ -1919,7 +1907,7 @@ int driver_copyToLocal(const char* sSourceFilePathName, const char* sDestFilePat
 		if (!to_file)
 		{
 			// something went wrong on write side, abort
-			LogError("Error while writing data to local file");
+			getLogger()->error("Error while writing data to local file");
 			return false;
 		}
 
@@ -1939,18 +1927,18 @@ int driver_copyToLocal(const char* sSourceFilePathName, const char* sDestFilePat
 
 	if (!op_res || !file_stream)
 	{
-		LogError("Error copying remote file to local storage.");
-		spdlog::debug("Attempting to remove local file.");
+		getLogger()->error("Error copying remote file to local storage.");
+		getLogger()->debug("Attempting to remove local file.");
 		if (0 != std::remove(sDestFilePathName))
 		{
-			LogError("Error attempting to remove local file.");
+			getLogger()->error("Error attempting to remove local file.");
 		}
-		spdlog::debug("Successful file removal.");
+		getLogger()->debug("Successful file removal.");
 
 		return kOtherFailure;
 	}
 
-	spdlog::debug("Successful local copy of remote file.");
+	getLogger()->debug("Successful local copy of remote file.");
 
 	return kOtherSuccess;
 }
@@ -1962,7 +1950,7 @@ int driver_copyFromLocal(const char* sSourceFilePathName, const char* sDestFileP
 	ERROR_ON_NULL_ARG(sSourceFilePathName, kOtherFailure);
 	ERROR_ON_NULL_ARG(sDestFilePathName, kOtherFailure);
 
-	spdlog::debug("copyFromLocal {} {}", sSourceFilePathName, sDestFilePathName);
+	getLogger()->debug("copyFromLocal {} {}", sSourceFilePathName, sDestFilePathName);
 
 	NAMES_OR_ERROR(sDestFilePathName, kOtherFailure);
 
@@ -1981,7 +1969,7 @@ int driver_copyFromLocal(const char* sSourceFilePathName, const char* sDestFileP
 
 	if (!put_object_outcome.IsSuccess())
 	{
-		spdlog::error("Error during file upload: {}", put_object_outcome.GetError().GetMessage());
+		getLogger()->error("Error during file upload: {}", put_object_outcome.GetError().GetMessage());
 		return kOtherFailure;
 	}
 
@@ -2013,7 +2001,7 @@ int driver_concat(const char *destfilename, const char **sourcefilenames, size_t
 
     if (sourcefilecount == 0)
     {
-        LogError("driver_concat: no source files");
+        getLogger()->error("driver_concat: no source files");
         return kOtherFailure;
     }
 
@@ -2022,7 +2010,7 @@ int driver_concat(const char *destfilename, const char **sourcefilenames, size_t
     size_t sp = 0;
     if (IsMultifile(names.object_, sp))
     {
-        LogError("driver_concat: destination must be a single object");
+        getLogger()->error("driver_concat: destination must be a single object");
         return kOtherFailure;
     }
 
@@ -2037,7 +2025,7 @@ int driver_concat(const char *destfilename, const char **sourcefilenames, size_t
 
     long long total_size = 0;
 
-    spdlog::info("driver_concat: dest={}, source count={}", destfilename, sourcefilecount);
+    getLogger()->info("driver_concat: dest={}, source count={}", destfilename, sourcefilecount);
 
     // Track unique source keys to delete on success
     std::set<Aws::String> sources_to_delete;
@@ -2051,7 +2039,7 @@ int driver_concat(const char *destfilename, const char **sourcefilenames, size_t
         const auto& s = parsed.GetResult();
         if (s.bucket_ != names.bucket_)
         {
-            LogError("driver_concat: sources must be in same bucket as destination");
+            getLogger()->error("driver_concat: sources must be in same bucket as destination");
             return kOtherFailure;
         }
 
@@ -2064,12 +2052,12 @@ int driver_concat(const char *destfilename, const char **sourcefilenames, size_t
 
         if (size > 0 && total_size > std::numeric_limits<long long>::max() - size)
         {
-            LogError("driver_concat: total size overflow");
+            getLogger()->error("driver_concat: total size overflow");
             return kOtherFailure;
         }
         total_size += size;
 
-        spdlog::debug("driver_concat: source {} -> size={}", s.object_, size);
+        getLogger()->debug("driver_concat: source {} -> size={}", s.object_, size);
 
         srcs.push_back({s.bucket_, s.object_, size, etag});
 
@@ -2079,7 +2067,7 @@ int driver_concat(const char *destfilename, const char **sourcefilenames, size_t
         }
         else
         {
-            spdlog::warn("driver_concat: source equals destination ({}), will not delete it",
+            getLogger()->warn("driver_concat: source equals destination ({}), will not delete it",
                          s.object_);
         }
     }
@@ -2087,7 +2075,7 @@ int driver_concat(const char *destfilename, const char **sourcefilenames, size_t
     // If everything is empty, create an empty destination object.
     if (total_size == 0)
     {
-        spdlog::info("driver_concat: all sources empty, creating empty destination object");
+        getLogger()->info("driver_concat: all sources empty, creating empty destination object");
         Aws::S3::Model::PutObjectRequest req;
         req.WithBucket(names.bucket_).WithKey(names.object_);
         auto empty_body = Aws::MakeShared<Aws::StringStream>(KHIOPS_S3);
@@ -2110,12 +2098,12 @@ int driver_concat(const char *destfilename, const char **sourcefilenames, size_t
             if (!del_outcome.IsSuccess())
             {
                 delete_ok = false;
-                spdlog::error("driver_concat: failed to delete source {}: {}",
+                getLogger()->error("driver_concat: failed to delete source {}: {}",
                               k, del_outcome.GetError().GetMessage());
             }
             else
             {
-                spdlog::debug("driver_concat: deleted source {}", k);
+                getLogger()->debug("driver_concat: deleted source {}", k);
             }
         }
 
@@ -2142,12 +2130,12 @@ int driver_concat(const char *destfilename, const char **sourcefilenames, size_t
             auto del_outcome = client->DeleteObject(req);
             if (!del_outcome.IsSuccess())
             {
-                spdlog::warn("driver_concat: failed to delete temp object {}: {}",
+                getLogger()->warn("driver_concat: failed to delete temp object {}: {}",
                              k, del_outcome.GetError().GetMessage());
             }
             else
             {
-                spdlog::debug("driver_concat: deleted temp object {}", k);
+                getLogger()->debug("driver_concat: deleted temp object {}", k);
             }
         }
     };
@@ -2157,7 +2145,7 @@ int driver_concat(const char *destfilename, const char **sourcefilenames, size_t
                             int level,
                             int group_idx) -> bool
     {
-        spdlog::info("concat_stage: level={}, group={}, dest={}, sources={}",
+        getLogger()->info("concat_stage: level={}, group={}, dest={}, sources={}",
                      level, group_idx, dest_key, inputs.size());
 
         auto writer_outcome = MakeWriterPtr(names.bucket_, dest_key);
@@ -2188,7 +2176,7 @@ int driver_concat(const char *destfilename, const char **sourcefilenames, size_t
         auto append_range_to_buffer = [&](const Src& src, long long start, long long len) -> bool {
             if (len <= 0) return true;
 
-            spdlog::debug("concat_stage: download range {}:{} (len={}) into buffer",
+            getLogger()->debug("concat_stage: download range {}:{} (len={}) into buffer",
                           src.key, start, len);
 
             Aws::Vector<unsigned char> tmp;
@@ -2204,20 +2192,20 @@ int driver_concat(const char *destfilename, const char **sourcefilenames, size_t
             {
                 Aws::String msg = "concat_stage: download failed: " +
                                   dl_outcome.GetError().GetMessage();
-                LogError(msg);
+                getLogger()->error(msg);
                 return false;
             }
 
             if (dl_outcome.GetResult() != len)
             {
-                LogError("concat_stage: short read while downloading source range");
+                getLogger()->error("concat_stage: short read while downloading source range");
                 return false;
             }
 
             writer->buffer_.reserve(writer->buffer_.size() + tmp.size());
             writer->buffer_.insert(writer->buffer_.end(), tmp.begin(), tmp.end());
 
-            spdlog::debug("concat_stage: buffer size now {}", writer->buffer_.size());
+            getLogger()->debug("concat_stage: buffer size now {}", writer->buffer_.size());
             return true;
         };
 
@@ -2227,21 +2215,21 @@ int driver_concat(const char *destfilename, const char **sourcefilenames, size_t
             const size_t sz = writer->buffer_.size();
             if (!is_last_part && sz < static_cast<size_t>(MIN_PART))
             {
-                LogError("concat_stage: internal error, part < 5MiB");
+                getLogger()->error("concat_stage: internal error, part < 5MiB");
                 return false;
             }
             if (sz > static_cast<size_t>(MAX_PART))
             {
-                LogError("concat_stage: internal error, part > 5GiB");
+                getLogger()->error("concat_stage: internal error, part > 5GiB");
                 return false;
             }
             if (part_count >= static_cast<size_t>(MAX_PARTS))
             {
-                LogError("concat_stage: exceeded 10,000 parts");
+                getLogger()->error("concat_stage: exceeded 10,000 parts");
                 return false;
             }
 
-            spdlog::debug("concat_stage: UploadPart (part #{}) size={}",
+            getLogger()->debug("concat_stage: UploadPart (part #{}) size={}",
                           writer->part_tracker_, sz);
 
             auto outcome = UploadPart(*writer);
@@ -2262,13 +2250,13 @@ int driver_concat(const char *destfilename, const char **sourcefilenames, size_t
             if (len <= 0) return true;
             if (part_count >= static_cast<size_t>(MAX_PARTS))
             {
-                LogError("concat_stage: exceeded 10,000 parts");
+                getLogger()->error("concat_stage: exceeded 10,000 parts");
                 return false;
             }
 
             writer->append_target_ = src.bucket + "/" + src.key;
 
-            spdlog::debug("concat_stage: UploadPartCopy (part #{}) {} [{}..{}] len={}",
+            getLogger()->debug("concat_stage: UploadPartCopy (part #{}) {} [{}..{}] len={}",
                           writer->part_tracker_, src.key, start, start + len - 1, len);
 
             auto outcome = UploadPartCopy(*writer, MakeByteRange(start, start + len - 1));
@@ -2290,7 +2278,7 @@ int driver_concat(const char *destfilename, const char **sourcefilenames, size_t
             const auto& src = inputs[i];
             if (src.size == 0) continue;
 
-            spdlog::debug("concat_stage: processing source {} size={}", src.key, src.size);
+            getLogger()->debug("concat_stage: processing source {} size={}", src.key, src.size);
 
             long long offset = 0;
             long long rem = src.size;
@@ -2348,7 +2336,7 @@ int driver_concat(const char *destfilename, const char **sourcefilenames, size_t
 
                 if (rem < MIN_PART && has_data_after[i])
                 {
-                    spdlog::debug("concat_stage: tail <5MiB buffered (source {}, len={})",
+                    getLogger()->debug("concat_stage: tail <5MiB buffered (source {}, len={})",
                                   src.key, rem);
                     if (!append_range_to_buffer(src, offset, rem))
                     {
@@ -2385,7 +2373,7 @@ int driver_concat(const char *destfilename, const char **sourcefilenames, size_t
 
         if (part_count == 0)
         {
-            LogError("concat_stage: no parts uploaded (internal error)");
+            getLogger()->error("concat_stage: no parts uploaded (internal error)");
             abort_upload();
             return false;
         }
@@ -2399,7 +2387,7 @@ int driver_concat(const char *destfilename, const char **sourcefilenames, size_t
             return false;
         }
 
-        spdlog::info("concat_stage: completed dest={} parts={} bytes={}",
+        getLogger()->info("concat_stage: completed dest={} parts={} bytes={}",
                      dest_key, part_count, bytes_written);
 
         return true;
@@ -2418,14 +2406,14 @@ int driver_concat(const char *destfilename, const char **sourcefilenames, size_t
             long long est = estimate_parts(s);
             if (est > MAX_PARTS)
             {
-                LogError("driver_concat: single source exceeds 10,000-part limit");
+                getLogger()->error("driver_concat: single source exceeds 10,000-part limit");
                 cleanup_temps(temp_keys);
                 return kOtherFailure;
             }
             total_est += est;
         }
 
-        spdlog::info("driver_concat: level {} sources={} estimated_parts={}",
+        getLogger()->info("driver_concat: level {} sources={} estimated_parts={}",
                      level, current.size(), total_est);
 
         if (total_est <= MAX_PARTS)
@@ -2463,14 +2451,14 @@ int driver_concat(const char *destfilename, const char **sourcefilenames, size_t
 
             if (group_sources.empty())
             {
-                LogError("driver_concat: grouping failed due to part limit");
+                getLogger()->error("driver_concat: grouping failed due to part limit");
                 cleanup_temps(temp_keys);
                 return kOtherFailure;
             }
 
             Aws::String tmp_key = make_temp_key(level, group);
 
-            spdlog::info("driver_concat: level {} group {} -> temp {} (sources={}, est_parts={})",
+            getLogger()->info("driver_concat: level {} group {} -> temp {} (sources={}, est_parts={})",
                          level, group, tmp_key, group_sources.size(), group_est);
 
             if (!concat_stage(group_sources, tmp_key, level, group))
@@ -2512,12 +2500,12 @@ int driver_concat(const char *destfilename, const char **sourcefilenames, size_t
         if (!del_outcome.IsSuccess())
         {
             delete_ok = false;
-            spdlog::error("driver_concat: failed to delete source {}: {}",
+            getLogger()->error("driver_concat: failed to delete source {}: {}",
                           k, del_outcome.GetError().GetMessage());
         }
         else
         {
-            spdlog::debug("driver_concat: deleted source {}", k);
+            getLogger()->debug("driver_concat: deleted source {}", k);
         }
     }
 
