@@ -61,8 +61,6 @@ Aws::String globalBucketName = "";
 HandleContainer<ReaderPtr> active_reader_handles;
 HandleContainer<WriterPtr> active_writer_handles;
 
-constexpr const char* nullptr_msg_stub = "Error passing null pointer to ";
-
 // test utilities
 
 void test_setClient(Aws::UniquePtr<Aws::S3::S3Client>&& mock_client_ptr)
@@ -109,9 +107,7 @@ void* test_getActiveWriterHandles()
 #define ERROR_ON_NULL_ARG(arg, err_val)                                                                                \
 	if (!(arg))                                                                                                    \
 	{                                                                                                              \
-		Aws::OStringStream os;                                                                                 \
-		os << nullptr_msg_stub << __func__;                                                                    \
-		getLogger()->error(os.str());                                                                                    \
+		getLogger()->error("Error passing null pointer to {}", __func__);                                                                                    \
 		return (err_val);                                                                                      \
 	}
 
