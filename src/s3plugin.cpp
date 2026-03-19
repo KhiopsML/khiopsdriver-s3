@@ -7,6 +7,7 @@
 #include "s3plugin_internal.h"
 #include "khiops_driver_common/contrib.hpp"
 #include "khiops_driver_common/logging.hpp"
+#include "khiops_driver_common/util.hpp"
 #include "contrib/ini.h"
 
 #include "logging.hpp"
@@ -42,6 +43,7 @@
 
 using namespace Aws::Utils::Logging;
 using namespace s3plugin;
+using namespace khiops_driver_common::util;
 
 using s3plugin::logging::getLogger;
 
@@ -60,6 +62,11 @@ static Aws::String globalBucketName = "";
 
 static HandleContainer<ReaderPtr> active_reader_handles;
 static HandleContainer<WriterPtr> active_writer_handles;
+
+// Error strings
+static const char *ERR_NOT_CONNECTED = "Error: Driver is not connected.";
+static const char *ERR_NULL_ARG = "Error passing null pointer to {}";
+static const char *ERR_URL_PARSING = "Error parsing URL";
 
 // test utilities
 
@@ -86,50 +93,6 @@ void test_cleanupClient() {
 void *test_getActiveReaderHandles() { return &active_reader_handles; }
 
 void *test_getActiveWriterHandles() { return &active_writer_handles; }
-
-#define KH_S3_NOT_CONNECTED(err_val)                                           \
-  if (kFalse == bIsConnected) {                                                \
-    getLogger()->error("Error: Driver is not connected.");                     \
-    return (err_val);                                                          \
-  }
-
-#define ERROR_ON_NULL_ARG(arg, err_val)                                        \
-  if (!(arg)) {                                                                \
-    getLogger()->error("Error passing null pointer to {}", __func__);          \
-    return (err_val);                                                          \
-  }
-
-#define FIND_HANDLE_OR_ERROR(container, stream, errval)                        \
-  auto stream##_it = FindHandle((container), (stream));                        \
-  if (stream##_it == container.end()) {                                        \
-    getLogger()->error("Cannot identify stream");                              \
-    return (errval);                                                           \
-  }                                                                            \
-  auto &h_ptr = *stream##_it;
-
-#define IF_ERROR(outcome) if (!(outcome).IsSuccess())
-
-#define RETURN_OUTCOME_ON_ERROR(outcome)                                       \
-  IF_ERROR((outcome)) { return {MakeSimpleError((outcome).GetError())}; }
-
-#define PASS_OUTCOME_ON_ERROR(outcome)                                         \
-  IF_ERROR((outcome)) { return (outcome).GetError(); }
-
-#define RETURN_ON_ERROR(outcome, msg, err_val)                                 \
-  {                                                                            \
-    IF_ERROR((outcome)) {                                                      \
-      LogBadOutcome((outcome), (msg));                                         \
-      return (err_val);                                                        \
-    }                                                                          \
-  }
-
-#define ERROR_ON_NAMES(status_or_names, err_val)                               \
-  RETURN_ON_ERROR((status_or_names), "Error parsing URL", (err_val))
-
-#define NAMES_OR_ERROR(arg, err_val)                                           \
-  auto maybe_parsed_names = ParseS3Uri((arg));                                 \
-  ERROR_ON_NAMES(maybe_parsed_names, (err_val));                               \
-  auto &names = maybe_parsed_names.GetResult();
 
 template <typename R, typename E>
 void LogBadOutcome(const Aws::Utils::Outcome<R, E> &outcome,
@@ -192,38 +155,12 @@ void EraseRemove(HandleContainer<H> &container, HandleIt<H> pos) {
   container.pop_back();
 }
 
-struct SimpleError {
-  int code_;
-  Aws::String err_msg_;
-
-  Aws::String GetMessage() const { return std::to_string(code_) + err_msg_; }
-};
-
-SimpleError MakeSimpleError(Aws::S3::S3Errors err_code, Aws::String &&err_msg) {
-  return {static_cast<int>(err_code), std::move(err_msg)};
-}
-
-SimpleError MakeSimpleError(Aws::S3::S3Errors err_code, const char *err_msg) {
-  return {static_cast<int>(err_code), err_msg};
-}
-
-SimpleError MakeSimpleError(const Aws::S3::S3Error &from) {
-  return {static_cast<int>(from.GetErrorType()), from.GetMessage()};
-}
-
 struct ParseUriResult {
   Aws::String bucket_;
   Aws::String object_;
 };
 
 using ObjectsVec = Aws::Vector<S3Object>;
-
-template <typename R> using SimpleOutcome = Aws::Utils::Outcome<R, SimpleError>;
-
-using ParseURIOutcome = SimpleOutcome<ParseUriResult>;
-using SizeOutcome = SimpleOutcome<long long>;
-using FilterOutcome = SimpleOutcome<ObjectsVec>;
-using UploadOutcome = SimpleOutcome<bool>; // R can't be void
 
 // Definition of helper functions
 Aws::String MakeByteRange(int64_t start, int64_t end) {
@@ -232,17 +169,19 @@ Aws::String MakeByteRange(int64_t start, int64_t end) {
   return range.str();
 }
 
-SizeOutcome DownloadFileRangeToVector(const Aws::String &bucket,
-                                      const Aws::String &object_name,
-                                      Aws::Vector<unsigned char> &contentVector,
-                                      std::int64_t start_range,
-                                      std::int64_t end_range,
-                                      const Aws::String &etag) {
+int DownloadFileRangeToVector(long long *size, const Aws::String &bucket,
+                              const Aws::String &object_name,
+                              Aws::Vector<unsigned char> &contentVector,
+                              std::int64_t start_range, std::int64_t end_range,
+                              const Aws::String &etag) {
   // Note: AWS byte ranges are inclusive
   auto request = MakeGetObjectRequest(bucket, object_name, etag,
                                       MakeByteRange(start_range, end_range));
   auto outcome = client->GetObject(request);
-  RETURN_OUTCOME_ON_ERROR(outcome);
+  if (!outcome.IsSuccess()) {
+    getLogger()->error(outcome.GetError().GetMessage());
+    return -1;
+  };
 
   Aws::IOStream &objectStream = outcome.GetResult().GetBody();
   std::string objectData((std::istreambuf_iterator<char>(objectStream)),
@@ -250,20 +189,22 @@ SizeOutcome DownloadFileRangeToVector(const Aws::String &bucket,
 
   // Convert string to vector<char>
   contentVector.assign(objectData.begin(), objectData.end());
-  return static_cast<long long>(objectData.size());
+  *size = static_cast<long long>(objectData.size());
+  return 0;
 }
 
-SizeOutcome DownloadFileRangeToBuffer(const Aws::String &bucket,
-                                      const Aws::String &object_name,
-                                      unsigned char *buffer,
-                                      std::int64_t start_range,
-                                      std::int64_t end_range,
-                                      const Aws::String &etag) {
+int DownloadFileRangeToBuffer(long long *size, const Aws::String &bucket,
+                              const Aws::String &object_name,
+                              unsigned char *buffer, std::int64_t start_range,
+                              std::int64_t end_range, const Aws::String &etag) {
   // Note: AWS byte ranges are inclusive
   auto request = MakeGetObjectRequest(bucket, object_name, etag,
                                       MakeByteRange(start_range, end_range));
   auto outcome = client->GetObject(request);
-  RETURN_OUTCOME_ON_ERROR(outcome);
+  if (!outcome.IsSuccess()) {
+    getLogger()->error(outcome.GetError().GetMessage());
+    return -1;
+  };
 
   // get ownership of the result and its underlying stream
   Aws::S3::Model::GetObjectResult result{outcome.GetResultWithOwnership()};
@@ -272,17 +213,18 @@ SizeOutcome DownloadFileRangeToBuffer(const Aws::String &bucket,
   stream.read(reinterpret_cast<char *>(buffer), end_range - start_range + 1);
 
   if (stream.bad()) {
-    return MakeSimpleError(Aws::S3::S3Errors::INTERNAL_FAILURE,
-                           "Failed to read stream content");
+    getLogger()->error("Failed to read stream content");
+    return -1;
   }
 
-  return stream.gcount();
+  *size = stream.gcount();
+  return 0;
 }
 
-SizeOutcome CheckEtagOnly(const MultiPartFile &mf, size_t idx) {
+int CheckEtagOnly(const MultiPartFile &mf, size_t idx) {
   if (idx >= mf.filenames_.size() || idx >= mf.etags_.size()) {
-    return MakeSimpleError(Aws::S3::S3Errors::INTERNAL_FAILURE,
-                           "Invalid multipart index for ETag check.");
+    getLogger()->error("Invalid multipart index for ETag check.");
+    return -1;
   }
 
   Aws::S3::Model::HeadObjectRequest req;
@@ -295,24 +237,25 @@ SizeOutcome CheckEtagOnly(const MultiPartFile &mf, size_t idx) {
     const auto &err = outcome.GetError();
 
     if (err.GetErrorType() == Aws::S3::S3Errors::INTERNAL_FAILURE) {
-      return MakeSimpleError(err.GetErrorType(),
-                             "The file has been updated while reading it.");
+      getLogger()->error("The file has been updated while reading it.");
+      return -1;
     }
 
-    return MakeSimpleError(err.GetErrorType(), err.GetMessage().c_str());
+    getLogger()->error(err.GetMessage().c_str());
+    return -1;
   }
 
-  return tOffset{0};
+  return 0;
 }
 
-SizeOutcome ReadBytesInFile(MultiPartFile &multifile, unsigned char *buffer,
-                            tOffset to_read) {
+int ReadBytesInFile(long long *size, MultiPartFile &multifile,
+                    unsigned char *buffer, tOffset to_read) {
   // Start at first usable file chunk
   // Advance through file chunks, advancing buffer pointer
   // Until last requested byte was read
   // Or error occured
 
-  tOffset bytes_read{0};
+  tOffset bytes_read{0LL};
 
   // Lookup item containing initial bytes at requested offset
   const auto &cumul_sizes = multifile.cumulative_sizes_;
@@ -325,25 +268,25 @@ SizeOutcome ReadBytesInFile(MultiPartFile &multifile, unsigned char *buffer,
   // the multifile in its starting state
 
   if (filenames.empty() || cumul_sizes.empty()) {
-    return MakeSimpleError(Aws::S3::S3Errors::INTERNAL_FAILURE,
-                           "Cannot read from an empty multipart file.");
+    getLogger()->error("Cannot read from an empty multipart file.");
+    return -1;
   }
 
   const tOffset total_size = cumul_sizes.back();
 
   if (offset >= total_size) {
-    auto etag_check = CheckEtagOnly(multifile, cumul_sizes.size() - 1);
-    if (!etag_check.IsSuccess()) {
-      return MakeSimpleError(Aws::S3::S3Errors::INTERNAL_FAILURE,
-                             "The file has been updated while reading it.");
+    if (CheckEtagOnly(multifile, cumul_sizes.size() - 1)) {
+      getLogger()->error("The file has been updated while reading it.");
+      return -1;
     }
 
     if (to_read == 0) {
-      return tOffset{0};
+      *size = 0LL;
+      return 0;
     }
 
-    return MakeSimpleError(Aws::S3::S3Errors::INTERNAL_FAILURE,
-                           "Cannot read after end of file.");
+    getLogger()->error("Cannot read after end of file.");
+    return -1;
   }
 
   auto greater_than_offset_it =
@@ -359,8 +302,8 @@ SizeOutcome ReadBytesInFile(MultiPartFile &multifile, unsigned char *buffer,
 
   if (idx >= cumul_sizes.size() || idx >= filenames.size() ||
       idx >= multifile.etags_.size()) {
-    return MakeSimpleError(Aws::S3::S3Errors::INTERNAL_FAILURE,
-                           "Cannot read after end of file.");
+    getLogger()->error("Cannot read after end of file.");
+    return -1;
   }
 
   const tOffset range_end_for_log =
@@ -370,19 +313,18 @@ SizeOutcome ReadBytesInFile(MultiPartFile &multifile, unsigned char *buffer,
   getLogger()->debug("Use item {} to read @ {} (end = {})", idx, offset,
                      range_end_for_log);
 
-  auto read_range_and_update = [&](const Aws::String &filename, tOffset start,
-                                   tOffset end) -> SizeOutcome {
+  auto read_range_and_update = [&](long long *nread,
+                                   const Aws::String &filename, tOffset start,
+                                   tOffset end) -> int {
     const Aws::String &etag = multifile.etags_[idx];
 
-    auto download_outcome = DownloadFileRangeToBuffer(
-        bucket_name, filename, buffer_pos, static_cast<int64_t>(start),
-        static_cast<int64_t>(end), etag);
-    if (!download_outcome.IsSuccess()) {
-      return MakeSimpleError(Aws::S3::S3Errors::INTERNAL_FAILURE,
-                             "The file has been updated while reading it.");
+    tOffset actual_read;
+    if (DownloadFileRangeToBuffer(&actual_read, bucket_name, filename,
+                                  buffer_pos, static_cast<int64_t>(start),
+                                  static_cast<int64_t>(end), etag)) {
+      getLogger()->error("The file has been updated while reading it.");
+      return -1;
     }
-
-    tOffset actual_read = download_outcome.GetResult();
 
     getLogger()->debug("read = {}", actual_read);
 
@@ -397,7 +339,8 @@ SizeOutcome ReadBytesInFile(MultiPartFile &multifile, unsigned char *buffer,
       to_read -= actual_read;
     }
 
-    return actual_read;
+    *nread = actual_read;
+    return 0;
   };
 
   // first file read
@@ -410,14 +353,16 @@ SizeOutcome ReadBytesInFile(MultiPartFile &multifile, unsigned char *buffer,
       std::min(file_start + to_read, file_start + cumul_sizes[idx] - offset) -
       1;
   if (read_end < file_start) {
-    return tOffset{0};
+    *size = 0LL;
+    return 0;
   }
 
-  SizeOutcome read_outcome =
-      read_range_and_update(filenames[idx], file_start, read_end);
+  long long nread;
+  int code =
+      read_range_and_update(&nread, filenames[idx], file_start, read_end);
 
   // continue with the next files
-  while (read_outcome.IsSuccess() && to_read) {
+  while (!code && to_read) {
     // read the missing bytes in the next files as necessary
     if (idx + 1 >= cumul_sizes.size()) {
       to_read = 0;
@@ -433,130 +378,46 @@ SizeOutcome ReadBytesInFile(MultiPartFile &multifile, unsigned char *buffer,
       break;
     }
 
-    read_outcome = read_range_and_update(filenames[idx], start, end);
+    code = read_range_and_update(&nread, filenames[idx], start, end);
   }
 
-  if (read_outcome.IsSuccess()) {
-    read_outcome.GetResult() = bytes_read;
+  if (code) {
+    return -1;
   }
 
-  return read_outcome;
+  *size = bytes_read;
+  return 0;
 }
 
-// bool UploadBuffer(const Aws::String& bucket_name, const Aws::String&
-// object_name, const char* buffer, 		  std::size_t buffer_size)
-// {
-
-// 	Aws::S3::Model::PutObjectRequest request;
-// 	request.SetBucket(bucket_name);
-// 	request.SetKey(object_name);
-
-// 	const std::shared_ptr<Aws::IOStream> inputData =
-// Aws::MakeShared<Aws::StringStream>(""); 	std::string data; 	data.assign(buffer,
-// buffer_size); 	*inputData << data.c_str();
-
-// 	request.SetBody(inputData);
-
-// 	Aws::S3::Model::PutObjectOutcome outcome = client->PutObject(request);
-
-// 	if (!outcome.IsSuccess())
-// 	{
-// 		getLogger()->error("PutObjectBuffer: {}",
-// outcome.GetError().GetMessage());
-// 	}
-
-// 	return outcome.IsSuccess();
-// }
-
-ParseURIOutcome ParseS3Uri(
-    const Aws::String
-        &s3_uri) { //, std::string &bucket_name, std::string &object_name) {
+int ParseS3Uri(ParseUriResult *parsedUri, const Aws::String &s3_uri) {
   const Aws::String prefix = "s3://";
   const size_t prefix_size = prefix.size();
   if (s3_uri.compare(0, prefix_size, prefix) != 0) {
-    return SimpleError{
-        static_cast<int>(Aws::S3::S3Errors::INVALID_PARAMETER_VALUE),
-        "Invalid S3 URI: " + s3_uri};
-    //{"", "", "Invalid S3 URI: " + s3_uri};
-    // getLogger()->error("Invalid S3 URI: {}", s3_uri);
-    // return false;
+    getLogger()->error("Invalid S3 URI: {}", s3_uri);
+    return -1;
   }
 
   size_t pos = s3_uri.find('/', prefix_size);
   if (pos == std::string::npos) {
-    return SimpleError{
-        static_cast<int>(Aws::S3::S3Errors::INVALID_PARAMETER_VALUE),
-        "Invalid S3 URI, missing object name: " + s3_uri};
-    //{"", "", "Invalid S3 URI, missing object name: " +
-    // s3_uri};
-    // getLogger()->error("Invalid S3 URI, missing object name: {}", s3_uri);
-    // return false;
+    getLogger()->error("Invalid S3 URI, missing object name: {}", s3_uri);
+    return -1;
   }
 
   Aws::String bucket_name = s3_uri.substr(prefix_size, pos - prefix_size);
 
   if (bucket_name.empty()) {
     if (globalBucketName.empty()) {
-      return SimpleError{
-          static_cast<int>(Aws::S3::S3Errors::MISSING_PARAMETER),
-          "No bucket specified, and GCS_BUCKET_NAME is not set!"};
+      getLogger()->error(
+          "No bucket specified, and GCS_BUCKET_NAME is not set!");
+      return -1;
     }
     bucket_name = globalBucketName;
   }
 
   Aws::String object_name = s3_uri.substr(pos + 1);
 
-  return ParseUriResult{std::move(bucket_name), std::move(object_name)};
-}
-
-// void FallbackToDefaultBucket(std::string &bucket_name) {
-//   if (!bucket_name.empty())
-//     return;
-//   if (!globalBucketName.empty()) {
-//     bucket_name = globalBucketName;
-//     return;
-//   }
-//   getLogger()->critical("No bucket specified, and GCS_BUCKET_NAME is not
-//   set!");
-// }
-
-std::string ToLower(const std::string &str) {
-  std::string low{str};
-  const size_t cnt = low.length();
-  for (size_t i = 0; i < cnt; i++) {
-    low[i] = static_cast<char>(std::tolower(static_cast<unsigned char>(
-        low[i]))); // see https://en.cppreference.com/w/cpp/string/byte/tolower
-  }
-  return low;
-}
-
-Aws::String GetEnvironmentVariableOrDefault(const Aws::String &variable_name,
-                                            const Aws::String &default_value) {
-#ifdef _WIN32
-  size_t len;
-  char value[2048];
-  getenv_s(&len, value, 2048, variable_name.c_str());
-#else
-  char *value = getenv(variable_name.c_str());
-#endif
-
-  if (value && std::strlen(value) > 0) {
-    return value;
-  }
-
-  const std::string low_key = ToLower(variable_name);
-  if (low_key.find("token") != std::string::npos ||
-      low_key.find("password") != std::string::npos ||
-      low_key.find("key") != std::string::npos ||
-      low_key.find("secret") != std::string::npos) {
-    getLogger()->debug("No {} specified, using **REDACTED** as default.",
-                       variable_name);
-  } else {
-    getLogger()->debug("No {} specified, using '{}' as default.", variable_name,
-                       default_value);
-  }
-
-  return default_value;
+  *parsedUri = ParseUriResult{std::move(bucket_name), std::move(object_name)};
+  return 0;
 }
 
 bool IsMultifile(const Aws::String &pattern, size_t &first_special_char_idx) {
@@ -593,13 +454,13 @@ Aws::S3::Model::ListObjectsV2Outcome ListObjects(const Aws::String &bucket,
 // Get from a bucket a list of objects matching a name pattern.
 // To get a limited list of objects to filter per request, the request includes
 // a well defined prefix contained in the pattern
-FilterOutcome FilterList(const Aws::String &bucket, const Aws::String &pattern,
-                         size_t pattern_1st_sp_char_pos) {
+int FilterList(ObjectsVec *result, const Aws::String &bucket,
+               const Aws::String &pattern, size_t pattern_1st_sp_char_pos) {
   ObjectsVec res;
 
   Aws::S3::Model::ListObjectsV2Request request;
   request.WithBucket(bucket).WithPrefix(
-      pattern.substr(0, pattern_1st_sp_char_pos)); //.WithDelimiter("");
+      pattern.substr(0, pattern_1st_sp_char_pos));
   Aws::String continuation_token;
 
   do {
@@ -609,7 +470,10 @@ FilterOutcome FilterList(const Aws::String &bucket, const Aws::String &pattern,
     const Aws::S3::Model::ListObjectsV2Outcome outcome =
         client->ListObjectsV2(request);
 
-    RETURN_OUTCOME_ON_ERROR(outcome);
+    if (!outcome.IsSuccess()) {
+      getLogger()->error(outcome.GetError().GetMessage());
+      return -1;
+    };
 
     const auto &list_result = outcome.GetResult();
     const auto &objects = list_result.GetContents();
@@ -622,20 +486,9 @@ FilterOutcome FilterList(const Aws::String &bucket, const Aws::String &pattern,
 
   } while (!continuation_token.empty());
 
-  return res;
+  *result = std::move(res);
+  return 0;
 }
-
-#define KH_S3_FILTER_LIST(var, bucket, pattern, pattern_1st_sp_char_pos)       \
-  const auto var##_outcome =                                                   \
-      FilterList(bucket, pattern, pattern_1st_sp_char_pos);                    \
-  PASS_OUTCOME_ON_ERROR(var##_outcome);                                        \
-  const ObjectsVec &var = var##_outcome.GetResult();
-
-#define KH_S3_EMPTY_LIST(list)                                                 \
-  if ((list).empty()) {                                                        \
-    return MakeSimpleError(Aws::S3::S3Errors::RESOURCE_NOT_FOUND,              \
-                           "No match for the file pattern");                   \
-  }
 
 bool WillSizeCountProductOverflow(size_t size, size_t count) {
   constexpr size_t max_prod_usable{
@@ -722,25 +575,19 @@ int driver_connect() {
 
   // Load AWS configuration from file
   Aws::Auth::AWSCredentials configCredentials;
-  Aws::String userHome = GetEnvironmentVariableOrDefault("HOME", "");
+  Aws::String userHome = env::GetEnvVarOrDefault("HOME", "");
   if (!userHome.empty()) {
     Aws::OStringStream defaultConfig_os;
     defaultConfig_os << userHome << "/.aws/config";
     const std::string defaultConfig = defaultConfig_os.str();
 
-    // std::string defaultConfig = std::filesystem::path(userHome)
-    //                                 .append(".aws")
-    //                                 .append("config")
-    //                                 .string();
-
     const Aws::String configFile =
-        GetEnvironmentVariableOrDefault("AWS_CONFIG_FILE", defaultConfig);
+        env::GetEnvVarOrDefault("AWS_CONFIG_FILE", defaultConfig);
     getLogger()->debug("Conf file = {}", configFile);
 
     if (file_exists(configFile)) {
-      // if (std::filesystem::exists(std::filesystem::path(configFile))) {
       const Aws::String profile =
-          GetEnvironmentVariableOrDefault("AWS_PROFILE", "default");
+          env::GetEnvVarOrDefault("AWS_PROFILE", "default");
 
       getLogger()->debug("Profile = {}", profile);
 
@@ -778,26 +625,22 @@ int driver_connect() {
   // except for the "S3_*" variables that are kept to support legacy
   // applications
 
-  globalBucketName = GetEnvironmentVariableOrDefault("S3_BUCKET_NAME", "");
-  s3endpoint = GetEnvironmentVariableOrDefault("S3_ENDPOINT", s3endpoint);
-  s3endpoint = GetEnvironmentVariableOrDefault("AWS_ENDPOINT_URL", s3endpoint);
-  s3region = GetEnvironmentVariableOrDefault("AWS_DEFAULT_REGION", s3region);
-  Aws::String s3accessKey =
-      GetEnvironmentVariableOrDefault("S3_ACCESS_KEY", "");
-  s3accessKey =
-      GetEnvironmentVariableOrDefault("AWS_ACCESS_KEY_ID", s3accessKey);
-  Aws::String s3secretKey =
-      GetEnvironmentVariableOrDefault("S3_SECRET_KEY", "");
-  s3secretKey =
-      GetEnvironmentVariableOrDefault("AWS_SECRET_ACCESS_KEY", s3secretKey);
+  globalBucketName = env::GetEnvVarOrDefault("S3_BUCKET_NAME", "");
+  s3endpoint = env::GetEnvVarOrDefault("S3_ENDPOINT", s3endpoint);
+  s3endpoint = env::GetEnvVarOrDefault("AWS_ENDPOINT_URL", s3endpoint);
+  s3region = env::GetEnvVarOrDefault("AWS_DEFAULT_REGION", s3region);
+  Aws::String s3accessKey = env::GetEnvVarOrDefault("S3_ACCESS_KEY", "");
+  s3accessKey = env::GetEnvVarOrDefault("AWS_ACCESS_KEY_ID", s3accessKey);
+  Aws::String s3secretKey = env::GetEnvVarOrDefault("S3_SECRET_KEY", "");
+  s3secretKey = env::GetEnvVarOrDefault("AWS_SECRET_ACCESS_KEY", s3secretKey);
   if ((s3accessKey != "" && s3secretKey == "") ||
       (s3accessKey == "" && s3secretKey != "")) {
     getLogger()->error("Access key and secret configuration is only permitted "
                        "when both values are provided.");
-    return false;
+    return kOtherFailure;
   }
 
-  if (!GetEnvironmentVariableOrDefault("AWS_DEBUG_HTTP_LOGS", "").empty()) {
+  if (!env::GetEnvVarOrDefault("AWS_DEBUG_HTTP_LOGS", "").empty()) {
     options.loggingOptions.logLevel = Aws::Utils::Logging::LogLevel::Debug;
     options.loggingOptions.logger_create_fn = [] {
       return std::make_shared<ConsoleLogSystem>(LogLevel::Debug);
@@ -809,11 +652,11 @@ int driver_connect() {
 
   Aws::Client::ClientConfiguration clientConfig(true, "legacy", true);
   clientConfig.allowSystemProxy =
-      !GetEnvironmentVariableOrDefault("http_proxy", "").empty() ||
-      !GetEnvironmentVariableOrDefault("https_proxy", "").empty() ||
-      !GetEnvironmentVariableOrDefault("HTTP_PROXY", "").empty() ||
-      !GetEnvironmentVariableOrDefault("HTTPS_PROXY", "").empty() ||
-      !GetEnvironmentVariableOrDefault("S3_ALLOW_SYSTEM_PROXY", "").empty();
+      !env::GetEnvVarOrDefault("http_proxy", "").empty() ||
+      !env::GetEnvVarOrDefault("https_proxy", "").empty() ||
+      !env::GetEnvVarOrDefault("HTTP_PROXY", "").empty() ||
+      !env::GetEnvVarOrDefault("HTTPS_PROXY", "").empty() ||
+      !env::GetEnvVarOrDefault("S3_ALLOW_SYSTEM_PROXY", "").empty();
   clientConfig.verifySSL = true;
   clientConfig.version = Aws::Http::Version::HTTP_VERSION_2TLS;
   if (s3endpoint != "") {
@@ -872,7 +715,6 @@ int driver_disconnect() {
 
   client.reset();
 
-  // Aws::Utils::Logging::ShutdownAWSLogging();
   ShutdownAPI(options);
 
   bIsConnected = kFalse;
@@ -888,9 +730,15 @@ long long int driver_getSystemPreferredBufferSize() {
 }
 
 int driver_exist(const char *filename) {
-  KH_S3_NOT_CONNECTED(kFalse);
+  if (kFalse == bIsConnected) {
+    getLogger()->error(ERR_NOT_CONNECTED);
+    return (kFalse);
+  };
 
-  ERROR_ON_NULL_ARG(filename, kFalse);
+  if (!filename) {
+    getLogger()->error("ERR_NULL_ARG", __func__);
+    return kFalse;
+  }
 
   const size_t size = std::strlen(filename);
   if (0 == size) {
@@ -913,13 +761,23 @@ int driver_exist(const char *filename) {
 }
 
 int driver_fileExists(const char *sFilePathName) {
-  KH_S3_NOT_CONNECTED(kFalse);
+  if (kFalse == bIsConnected) {
+    getLogger()->error(ERR_NOT_CONNECTED);
+    return (kFalse);
+  };
 
-  ERROR_ON_NULL_ARG(sFilePathName, kFalse);
+  if (!(sFilePathName)) {
+    getLogger()->error("ERR_NULL_ARG", __func__);
+    return (kFalse);
+  };
 
   getLogger()->debug("fileExist {}", sFilePathName);
 
-  NAMES_OR_ERROR(sFilePathName, kFalse);
+  ParseUriResult names;
+  if (ParseS3Uri(&names, sFilePathName)) {
+    getLogger()->error(ERR_URL_PARSING);
+    return kFalse;
+  }
 
   size_t pattern_1st_sp_char_pos = 0;
   if (!IsMultifile(names.object_, pattern_1st_sp_char_pos)) {
@@ -929,62 +787,83 @@ int driver_fileExists(const char *sFilePathName) {
         Aws::S3::S3Errors::RESOURCE_NOT_FOUND) {
       return kFalse;
     }
-    RETURN_ON_ERROR(head_object_outcome,
-                    "Failed retrieving file info in fileExists", kFalse);
+    if (!head_object_outcome.IsSuccess()) {
+      getLogger()->error("Failed retrieving file info in fileExists: {}",
+                         head_object_outcome.GetError().GetMessage());
+      return kFalse;
+    }
 
     return kTrue;
   }
 
   // get a filtered list of the bucket files that match the pattern
-  auto filter_list_outcome =
-      FilterList(names.bucket_, names.object_, pattern_1st_sp_char_pos);
-  RETURN_ON_ERROR(filter_list_outcome, "Error while filtering object list",
-                  kFalse);
+  ObjectsVec filteredList;
+  if (FilterList(&filteredList, names.bucket_, names.object_,
+                 pattern_1st_sp_char_pos)) {
+    getLogger()->error("Error while filtering object list");
+    return kFalse;
+  }
 
-  return filter_list_outcome.GetResult().empty() ? kFalse : kTrue;
+  return filteredList.empty() ? kFalse : kTrue;
 }
 
 int driver_dirExists(const char *sFilePathName) {
-  KH_S3_NOT_CONNECTED(kFalse);
+  if (kFalse == bIsConnected) {
+    getLogger()->error(ERR_NOT_CONNECTED);
+    return (kFalse);
+  };
 
-  ERROR_ON_NULL_ARG(sFilePathName, kFalse);
+  if (!(sFilePathName)) {
+    getLogger()->error("ERR_NULL_ARG", __func__);
+    return (kFalse);
+  };
 
   getLogger()->debug("dirExist {}", sFilePathName);
 
   return kTrue;
 }
 
-SizeOutcome GetOneFileSize(const Aws::String &bucket,
-                           const Aws::String &object) {
+int GetOneFileSize(long long *size, const Aws::String &bucket,
+                   const Aws::String &object) {
   const auto head_object_outcome = HeadObject(bucket, object);
-  RETURN_OUTCOME_ON_ERROR(head_object_outcome);
-  return head_object_outcome.GetResult().GetContentLength();
+  if (!head_object_outcome.IsSuccess()) {
+    getLogger()->error(head_object_outcome.GetError().GetMessage());
+    return -1;
+  };
+  *size = head_object_outcome.GetResult().GetContentLength();
+  return 0;
 }
 
-#define KHIOPS_MAX_HEADERLENGTH 8 * 1024 * 1024
 // Khiops allows header length to be max 8MB
-SimpleOutcome<Aws::String>
-ReadHeader(const Aws::String &bucket, const S3Object &obj,
-           int64_t max_length = KHIOPS_MAX_HEADERLENGTH) {
+constexpr int KHIOPS_MAX_HEADERLENGTH = 8 * 1024 * 1024;
+
+int ReadHeader(Aws::String *header, const Aws::String &bucket,
+               const S3Object &obj,
+               int64_t max_length = KHIOPS_MAX_HEADERLENGTH) {
   auto request = MakeGetObjectRequest(bucket, obj.GetKey(), obj.GetETag(),
                                       MakeByteRange(0, max_length));
   auto outcome = client->GetObject(request);
-  RETURN_OUTCOME_ON_ERROR(outcome);
+  if (!outcome.IsSuccess()) {
+    getLogger()->error(outcome.GetError().GetMessage());
+    return -1;
+  };
   auto result = outcome.GetResultWithOwnership();
   Aws::IOStream &read_stream = result.GetBody();
   Aws::String line;
   std::getline(read_stream, line);
   if (read_stream.bad()) {
-    return MakeSimpleError(Aws::S3::S3Errors::INTERNAL_FAILURE,
-                           "header read failed");
+    getLogger()->error("header read failed");
+    return -1;
   }
   if (!read_stream.eof()) {
     line.push_back('\n');
   }
   if (line.empty()) {
-    return MakeSimpleError(Aws::S3::S3Errors::INTERNAL_FAILURE, "Empty header");
+    getLogger()->error("Empty header");
+    return -1;
   }
-  return line;
+  *header = line;
+  return 0;
 }
 
 // Sample a subset of objects for header detection (first, last, and some in
@@ -1052,13 +931,8 @@ SelectObjectsSubset(std::vector<std::string> const &all_objects) {
   return result;
 }
 
-#define KH_S3_READ_HEADER(var, bucket, obj, max_length)                        \
-  const auto var##_outcome = ReadHeader((bucket), (obj), (max_length));        \
-  PASS_OUTCOME_ON_ERROR(var##_outcome);                                        \
-  const Aws::String &var = var##_outcome.GetResult();
-
-SizeOutcome getFileSize(const Aws::String &bucket_name,
-                        const Aws::String &object_name) {
+int getFileSize(long long *size, const Aws::String &bucket_name,
+                const Aws::String &object_name) {
   // tweak the request for the object. if the object parameter is in fact a
   // pattern, the pattern could point to a list of objects that constitute a
   // whole file
@@ -1066,14 +940,19 @@ SizeOutcome getFileSize(const Aws::String &bucket_name,
   size_t pattern_1st_sp_char_pos = 0;
   if (!IsMultifile(object_name, pattern_1st_sp_char_pos)) {
     // go ahead with the simple request
-    return GetOneFileSize(bucket_name, object_name);
+    return GetOneFileSize(size, bucket_name, object_name);
   }
 
-  KH_S3_FILTER_LIST(file_list, bucket_name, object_name,
-                    pattern_1st_sp_char_pos); // !! puts file_list and
-                                              // file_list_outcome into scope
+  ObjectsVec file_list;
+  if (FilterList(&file_list, bucket_name, object_name,
+                 pattern_1st_sp_char_pos)) {
+    return -1;
+  };
 
-  KH_S3_EMPTY_LIST(file_list);
+  if ((file_list).empty()) {
+    getLogger()->error("No match for the file pattern");
+    return -1;
+  };
 
   // build vector of filenames for sampling
   std::vector<std::string> filenames;
@@ -1094,9 +973,10 @@ SizeOutcome getFileSize(const Aws::String &bucket_name,
   // sampling: pick representative files for header checks
   std::set<std::string> selected = SelectObjectsSubset(filenames);
 
-  KH_S3_READ_HEADER(
-      header, bucket_name, first_file,
-      KHIOPS_MAX_HEADERLENGTH); // !! puts header and outcome_header into scope
+  Aws::String header;
+  if (ReadHeader(&header, bucket_name, first_file, KHIOPS_MAX_HEADERLENGTH)) {
+    return -1;
+  }
 
   const long long header_size = header.size();
 
@@ -1110,9 +990,10 @@ SizeOutcome getFileSize(const Aws::String &bucket_name,
     if (same_header) {
       if (selected.find(curr_key) != selected.end()) {
         // Actually verify file contents for sampled file
-        KH_S3_READ_HEADER(curr_header, bucket_name, curr_file,
-                          header_size); // !! puts curr_header_outcome and
-                                        // curr_header into scope
+        Aws::String curr_header;
+        if (ReadHeader(&curr_header, bucket_name, curr_file, header_size)) {
+          return -1;
+        }
 
         same_header = (header == curr_header);
         if (same_header) {
@@ -1137,30 +1018,46 @@ SizeOutcome getFileSize(const Aws::String &bucket_name,
     nb_headers_to_subtract = 0;
   }
 
-  return total_size -
-         static_cast<long long>(nb_headers_to_subtract) * header_size;
+  *size =
+      total_size - static_cast<long long>(nb_headers_to_subtract) * header_size;
+  return 0;
 }
 
 long long int driver_getFileSize(const char *filename) {
-  KH_S3_NOT_CONNECTED(kFailure);
+  if (kFalse == bIsConnected) {
+    getLogger()->error(ERR_NOT_CONNECTED);
+    return (kFailure);
+  };
 
-  ERROR_ON_NULL_ARG(filename, kFailure);
+  if (!(filename)) {
+    getLogger()->error("ERR_NULL_ARG", __func__);
+    return (kFailure);
+  };
 
   getLogger()->debug("getFileSize {}", filename);
 
-  NAMES_OR_ERROR(filename, kFailure);
-  const auto maybe_file_size = getFileSize(names.bucket_, names.object_);
-  RETURN_ON_ERROR(maybe_file_size, "Error getting file size", kFailure);
-
-  return maybe_file_size.GetResult();
+  ParseUriResult names;
+  if (ParseS3Uri(&names, filename)) {
+    getLogger()->error(ERR_URL_PARSING);
+    return kFailure;
+  }
+  long long size;
+  if (getFileSize(&size, names.bucket_, names.object_)) {
+    getLogger()->error("Error getting file size");
+    return kFailure;
+  }
+  return size;
 }
 
-SimpleOutcome<ReaderPtr> MakeReaderPtr(Aws::String bucketname,
-                                       Aws::String objectname) {
+int MakeReaderPtr(ReaderPtr *result, Aws::String bucketname,
+                  Aws::String objectname) {
   size_t pattern_1st_sp_char_pos = 0;
   if (!IsMultifile(objectname, pattern_1st_sp_char_pos)) {
     auto head_outcome = HeadObject(bucketname, objectname);
-    RETURN_OUTCOME_ON_ERROR(head_outcome);
+    if (!head_outcome.IsSuccess()) {
+      getLogger()->error(head_outcome.GetError().GetMessage());
+      return -1;
+    };
 
     const auto &head = head_outcome.GetResult();
     long long size = head.GetContentLength();
@@ -1170,9 +1067,10 @@ SimpleOutcome<ReaderPtr> MakeReaderPtr(Aws::String bucketname,
     Aws::Vector<tOffset> sizes(1, size);
     Aws::Vector<Aws::String> etags(1, etag);
 
-    return Aws::MakeUnique<Reader>(
+    *result = Aws::MakeUnique<Reader>(
         KHIOPS_S3, std::move(bucketname), std::move(objectname), 0, 0,
         std::move(objectnames), std::move(sizes), std::move(etags));
+    return 0;
   }
 
   // this is a multifile. the reader object needs the list of filenames matching
@@ -1185,11 +1083,15 @@ SimpleOutcome<ReaderPtr> MakeReaderPtr(Aws::String bucketname,
   // be avoided by keeping the entire list of Objects, at the cost of the space
   // used by the other metadata. The implementation here will save that space.
 
-  KH_S3_FILTER_LIST(file_list, bucketname, objectname,
-                    pattern_1st_sp_char_pos); // !! file_list and
-                                              // file_list_outcome now in scope
+  ObjectsVec file_list;
+  if (FilterList(&file_list, bucketname, objectname, pattern_1st_sp_char_pos)) {
+    return -1;
+  };
 
-  KH_S3_EMPTY_LIST(file_list);
+  if (file_list.empty()) {
+    getLogger()->error("No match for the file pattern");
+    return -1;
+  };
 
   const size_t file_count = file_list.size();
   Aws::Vector<Aws::String> filenames(file_count);
@@ -1208,8 +1110,10 @@ SimpleOutcome<ReaderPtr> MakeReaderPtr(Aws::String bucketname,
 
   if (file_count > 1) {
     // read header of the first file
-    KH_S3_READ_HEADER(header, bucketname, first_file,
-                      KHIOPS_MAX_HEADERLENGTH); // header variable available
+    Aws::String header;
+    if (ReadHeader(&header, bucketname, first_file, KHIOPS_MAX_HEADERLENGTH)) {
+      return -1;
+    };
     tOffset header_length = static_cast<tOffset>(header.size());
 
     // Start building the rest of the lists
@@ -1224,9 +1128,10 @@ SimpleOutcome<ReaderPtr> MakeReaderPtr(Aws::String bucketname,
         if (SelectObjectsSubset(std::vector<std::string>{filenames[i]})
                 .count(filenames[i])) {
           // Read header for this sampled file
-          KH_S3_READ_HEADER(curr_header, bucketname, curr_file,
-                            header_length); // !! puts curr_header and
-                                            // curr_header_outcome into scope
+          Aws::String curr_header;
+          if (ReadHeader(&curr_header, bucketname, curr_file, header_length)) {
+            return -1;
+          };
           same_header = (curr_header == header);
         } else {
           // Not sampled: compare by size as a proxy
@@ -1246,63 +1151,55 @@ SimpleOutcome<ReaderPtr> MakeReaderPtr(Aws::String bucketname,
   }
 
   // construct the result
-  return Aws::MakeUnique<Reader>(KHIOPS_S3, std::move(bucketname),
-                                 std::move(objectname), 0, common_header_length,
-                                 std::move(filenames),
-                                 std::move(cumulative_size), std::move(etags));
+  *result = Aws::MakeUnique<Reader>(
+      KHIOPS_S3, std::move(bucketname), std::move(objectname), 0,
+      common_header_length, std::move(filenames), std::move(cumulative_size),
+      std::move(etags));
+  return 0;
 }
 
-SimpleOutcome<WriterPtr> MakeWriterPtr(Aws::String bucket, Aws::String object) {
+int MakeWriterPtr(WriterPtr *result, Aws::String bucket, Aws::String object) {
   Aws::S3::Model::CreateMultipartUploadRequest request;
   request.SetBucket(std::move(bucket));
   request.SetKey(std::move(object));
   auto outcome = client->CreateMultipartUpload(request);
-  RETURN_OUTCOME_ON_ERROR(outcome);
-  return Aws::MakeUnique<Writer>(KHIOPS_S3, outcome.GetResultWithOwnership());
+  if (!outcome.IsSuccess()) {
+    return -1;
+  };
+  *result =
+      Aws::MakeUnique<Writer>(KHIOPS_S3, outcome.GetResultWithOwnership());
+  return 0;
 }
 
-// This template is only here to get specialized
-template <typename T> T *PushBackHandle(Aws::UniquePtr<T> &&) {
-  return nullptr;
-}
-
-template <> Reader *PushBackHandle<Reader>(ReaderPtr &&stream_ptr) {
+Reader *PushBackReaderHandle(ReaderPtr &&stream_ptr) {
   active_reader_handles.push_back(std::move(stream_ptr));
   return active_reader_handles.back().get();
 }
 
-template <> Writer *PushBackHandle<Writer>(WriterPtr &&stream_ptr) {
+Writer *PushBackWriterHandle(WriterPtr &&stream_ptr) {
   active_writer_handles.push_back(std::move(stream_ptr));
   return active_writer_handles.back().get();
 }
 
-template <typename Stream>
-SimpleOutcome<Stream *>
-RegisterStream(std::function<SimpleOutcome<Aws::UniquePtr<Stream>>(Aws::String,
-                                                                   Aws::String)>
-                   MakeStreamPtr,
-               Aws::String &&bucket, Aws::String &&object) {
-  auto outcome = MakeStreamPtr(std::move(bucket), std::move(object));
-  PASS_OUTCOME_ON_ERROR(outcome);
-  return PushBackHandle(outcome.GetResultWithOwnership());
+int RegisterReaderStream(Reader **result, Aws::String &&bucket,
+                         Aws::String &&object) {
+  Aws::UniquePtr<Reader> reader;
+  if (MakeReaderPtr(&reader, std::move(bucket), std::move(object))) {
+    return -1;
+  }
+  *result = PushBackReaderHandle(std::move(reader));
+  return 0;
 }
 
-SimpleOutcome<Reader *> RegisterReader(Aws::String &&bucket,
-                                       Aws::String &&object) {
-  return RegisterStream<Reader>(MakeReaderPtr, std::move(bucket),
-                                std::move(object));
+int RegisterWriterStream(Writer **result, Aws::String &&bucket,
+                         Aws::String &&object) {
+  Aws::UniquePtr<Writer> writer;
+  if (MakeWriterPtr(&writer, std::move(bucket), std::move(object))) {
+    return -1;
+  }
+  *result = PushBackWriterHandle(std::move(writer));
+  return 0;
 }
-
-SimpleOutcome<Writer *> RegisterWriter(Aws::String &&bucket,
-                                       Aws::String &&object) {
-  return RegisterStream<Writer>(MakeWriterPtr, std::move(bucket),
-                                std::move(object));
-}
-
-#define KH_S3_REGISTER_STREAM(type, bucket, object, err_msg)                   \
-  auto outcome = Register##type(std::move(bucket), std::move(object));         \
-  RETURN_ON_ERROR(outcome, err_msg, nullptr);                                  \
-  return outcome.GetResult();
 
 template <typename Result>
 void UpdateUploadMetadata(Writer &writer, const Result &result) {
@@ -1313,28 +1210,32 @@ void UpdateUploadMetadata(Writer &writer, const Result &result) {
   writer.part_tracker_++;
 }
 
-UploadOutcome UploadPart(Writer &writer) {
+int UploadPart(Writer &writer) {
   auto &buffer = writer.buffer_;
   Aws::Utils::Stream::PreallocatedStreamBuf pre_buf(buffer.data(),
                                                     buffer.size());
   const auto request = MakeUploadPartRequest(writer, pre_buf);
   auto outcome = client->UploadPart(request);
-  RETURN_OUTCOME_ON_ERROR(outcome);
+  if (!((outcome)).IsSuccess()) {
+    return -1;
+  };
 
   UpdateUploadMetadata(writer, outcome.GetResult());
 
-  return true;
+  return 0;
 }
 
-UploadOutcome UploadPartCopy(Writer &writer, const Aws::String &byte_range) {
+int UploadPartCopy(Writer &writer, const Aws::String &byte_range) {
   auto outcome =
       client->UploadPartCopy(MakeUploadPartCopyRequest(writer, byte_range));
-  RETURN_OUTCOME_ON_ERROR(outcome);
+  if (!((outcome)).IsSuccess()) {
+    return -1;
+  };
   UpdateUploadMetadata(writer, outcome.GetResult().GetCopyPartResult());
-  return true;
+  return 0;
 }
 
-UploadOutcome InitiateAppend(Writer &writer, size_t source_bytes_to_copy) {
+int InitiateAppend(Writer &writer, size_t source_bytes_to_copy) {
   // Make the requests to copy the source file.
   // If the source file is smaller than 5MB, the source needs to be
   // stored in an internal buffer and wait until more data arrives.
@@ -1354,9 +1255,9 @@ UploadOutcome InitiateAppend(Writer &writer, size_t source_bytes_to_copy) {
     // meaning that the bytes numbered start_range to end_range included are
     // copied
     const int64_t end_range = start_range + copy_count - 1;
-    auto outcome =
-        UploadPartCopy(writer, MakeByteRange(start_range, end_range));
-    PASS_OUTCOME_ON_ERROR(outcome);
+    if (UploadPartCopy(writer, MakeByteRange(start_range, end_range))) {
+      return -1;
+    };
 
     source_bytes_to_copy -= static_cast<size_t>(copy_count);
     start_range += copy_count;
@@ -1367,53 +1268,76 @@ UploadOutcome InitiateAppend(Writer &writer, size_t source_bytes_to_copy) {
     writer.buffer_.reserve(source_bytes_to_copy);
     auto head_outcome = HeadObject(multipartupload_data.GetBucket(),
                                    multipartupload_data.GetKey());
-    RETURN_OUTCOME_ON_ERROR(head_outcome);
+    if (!((head_outcome)).IsSuccess()) {
+      getLogger()->error(head_outcome.GetError().GetMessage());
+      return -1;
+    };
 
     Aws::String etag = head_outcome.GetResult().GetETag();
     // reminder: byte ranges are inclusive
-    auto outcome = DownloadFileRangeToVector(
-        multipartupload_data.GetBucket(), multipartupload_data.GetKey(),
-        writer.buffer_, start_range,
-        start_range + static_cast<int64_t>(source_bytes_to_copy) - 1, etag);
-    PASS_OUTCOME_ON_ERROR(outcome);
-
-    tOffset actual_read = outcome.GetResult();
+    tOffset actual_read;
+    if (DownloadFileRangeToVector(
+            &actual_read, multipartupload_data.GetBucket(),
+            multipartupload_data.GetKey(), writer.buffer_, start_range,
+            start_range + static_cast<int64_t>(source_bytes_to_copy) - 1,
+            etag)) {
+      return -1;
+    };
 
     getLogger()->debug("copied = {}", actual_read);
   }
 
-  return true;
+  return 0;
 }
 
 void *driver_fopen(const char *filename, char mode) {
-  KH_S3_NOT_CONNECTED(nullptr);
+  if (kFalse == bIsConnected) {
+    getLogger()->error(ERR_NOT_CONNECTED);
+    return (nullptr);
+  };
 
-  ERROR_ON_NULL_ARG(filename, nullptr);
+  if (!(filename)) {
+    getLogger()->error("ERR_NULL_ARG", __func__);
+    return (nullptr);
+  };
 
   getLogger()->debug("fopen {} {}", filename, mode);
 
-  NAMES_OR_ERROR(filename, nullptr);
+  ParseUriResult names;
+  if (ParseS3Uri(&names, (filename))) {
+    getLogger()->error(ERR_URL_PARSING);
+    return (((nullptr)));
+  }
 
   switch (mode) {
-  case 'r': {
-    KH_S3_REGISTER_STREAM(Reader, names.bucket_, names.object_,
-                          "Error while opening reader stream");
-  }
-  case 'w': {
-    KH_S3_REGISTER_STREAM(Writer, names.bucket_, names.object_,
-                          "Error while opening writer stream");
-  }
+  case 'r':
+    Reader *readerPtr;
+    if (RegisterReaderStream(&readerPtr, std::move(names.bucket_),
+                             std::move(names.object_))) {
+      getLogger()->error("Error while opening reader stream");
+      return (nullptr);
+    }
+    return readerPtr;
+  case 'w':
+    Writer *writerPtr;
+    if (RegisterWriterStream(&writerPtr, std::move(names.bucket_),
+                             std::move(names.object_))) {
+      getLogger()->error("Error while opening writer stream");
+      return (nullptr);
+    }
+    return writerPtr;
   case 'a': {
     // identify the concrete target of the append
     Aws::String target;
 
     size_t pattern_1st_sp_char_pos = 0;
     if (IsMultifile(names.object_, pattern_1st_sp_char_pos)) {
-      const auto file_list_outcome =
-          FilterList(names.bucket_, names.object_, pattern_1st_sp_char_pos);
-      RETURN_ON_ERROR(file_list_outcome,
-                      "Error while looking for existing file", nullptr);
-      const ObjectsVec &file_list = file_list_outcome.GetResult();
+      ObjectsVec file_list;
+      if (FilterList(&file_list, names.bucket_, names.object_,
+                     pattern_1st_sp_char_pos)) {
+        getLogger()->error("Error while looking for existing file");
+        return (nullptr);
+      }
 
       if (!file_list.empty()) {
         target = file_list.back().GetKey();
@@ -1433,11 +1357,16 @@ void *driver_fopen(const char *filename, char mode) {
         // source file not found, fallback to simple write mode
         getLogger()->debug(
             "No source file to append to, falling back to simple write.");
-        KH_S3_REGISTER_STREAM(Writer, names.bucket_, target,
-                              "Error while opening writer stream");
+        Writer *writerPtr;
+        if (RegisterWriterStream(&writerPtr, std::move(names.bucket_),
+                                 std::move(target))) {
+          getLogger()->error("Error while opening writer stream");
+          return (nullptr);
+        }
+        return writerPtr;
       } else {
         // genuine error
-        LogBadOutcome(head_outcome, "Error while opening append stream");
+        getLogger()->error("Error while opening append stream");
         return nullptr;
       }
     }
@@ -1447,51 +1376,62 @@ void *driver_fopen(const char *filename, char mode) {
     // deleting the previous version of the file at the end of the process for
     // the opening, gather the origin file metadata and issue the request to
     // copy its parts
-    auto register_outcome =
-        RegisterWriter(std::move(names.bucket_), std::move(target));
-    RETURN_ON_ERROR(register_outcome, "Error while opening append stream",
-                    nullptr);
-    auto writer_ptr = register_outcome.GetResult();
-    writer_ptr->append_target_ = head_outcome.GetResult().GetVersionId();
+
+    Writer *writerPtr;
+    if (RegisterWriterStream(&writerPtr, std::move(names.bucket_),
+                             std::move(target))) {
+      getLogger()->error("Error while opening append stream");
+      return (nullptr);
+    }
+
+    writerPtr->append_target_ = head_outcome.GetResult().GetVersionId();
 
     // requests for copy
-    const auto init_outcome = InitiateAppend(
-        *writer_ptr,
-        static_cast<size_t>(head_outcome.GetResult().GetContentLength()));
-    RETURN_ON_ERROR(init_outcome, "Error while initiating append stream",
-                    nullptr);
 
-    return writer_ptr;
+    if (InitiateAppend(
+            *writerPtr,
+            static_cast<size_t>(head_outcome.GetResult().GetContentLength()))) {
+      getLogger()->error("Error while initiating append stream");
+      return (nullptr);
+    }
+
+    return writerPtr;
   }
+
   default:
-    getLogger()->error(std::string("Invalid open mode: ") + mode);
+    getLogger()->error("Invalid open mode: {}", mode);
     return nullptr;
   }
 }
 
-#define KH_S3_FIND_AND_REMOVE(type, container, stream)                         \
-  auto type##_handle_it = FindHandle((container), (stream));                   \
-  if (type##_handle_it != (container).end()) {                                 \
-    EraseRemove((container), type##_handle_it);                                \
-    return kSuccess;                                                           \
-  }
-
 int driver_fclose(void *stream) {
-  KH_S3_NOT_CONNECTED(kFailure);
+  if (kFalse == bIsConnected) {
+    getLogger()->error(ERR_NOT_CONNECTED);
+    return (kFailure);
+  };
 
-  ERROR_ON_NULL_ARG(stream, kFailure);
+  if (!(stream)) {
+    getLogger()->error("ERR_NULL_ARG", __func__);
+    return (kFailure);
+  };
 
   getLogger()->debug("fclose {}", (void *)stream);
 
-  KH_S3_FIND_AND_REMOVE(reader, active_reader_handles, stream);
+  auto reader_handle_it = FindHandle((active_reader_handles), (stream));
+  if (reader_handle_it != (active_reader_handles).end()) {
+    EraseRemove((active_reader_handles), reader_handle_it);
+    return kSuccess;
+  };
 
   auto writer_h_it = FindHandle(active_writer_handles, stream);
   if (writer_h_it != active_writer_handles.end()) {
     // end multipart upload
     // first, flush the pending data
     auto &writer = **writer_h_it;
-    const auto upload_outcome = UploadPart(writer);
-    RETURN_ON_ERROR(upload_outcome, "Error during upload", kFailure);
+    if (UploadPart(writer)) {
+      getLogger()->error("Error during upload");
+      return (kFailure);
+    }
 
     // close upload
     const auto complete_outcome = client->CompleteMultipartUpload(
@@ -1501,8 +1441,11 @@ int driver_fclose(void *stream) {
     // if the request fails, the parts are still present on server side!
     // to be able to delete the parts, the writer handle must remain in
     // the list of active handles.
-    RETURN_ON_ERROR(complete_outcome,
-                    "Error completing upload while closing stream", kFailure);
+    if (!((complete_outcome)).IsSuccess()) {
+      LogBadOutcome((complete_outcome),
+                    ("Error completing upload while closing stream"));
+      return (kFailure);
+    }
 
     EraseRemove(active_writer_handles, writer_h_it);
 
@@ -1514,25 +1457,28 @@ int driver_fclose(void *stream) {
 }
 
 int driver_fseek(void *stream, long long int offset, int whence) {
-  KH_S3_NOT_CONNECTED(kFailure);
+  if (kFalse == bIsConnected) {
+    getLogger()->error(ERR_NOT_CONNECTED);
+    return (kFailure);
+  };
 
   constexpr long long max_val = std::numeric_limits<long long>::max();
 
-  ERROR_ON_NULL_ARG(stream, kFailure);
+  if (!(stream)) {
+    getLogger()->error("ERR_NULL_ARG", __func__);
+    return (kFailure);
+  };
 
   // confirm stream's presence
-  FIND_HANDLE_OR_ERROR(active_reader_handles, stream, kFailure);
+  auto stream_it = FindHandle((active_reader_handles), (stream));
+  if (stream_it == active_reader_handles.end()) {
+    getLogger()->error("Cannot identify stream");
+    return (kFailure);
+  }
+  auto &h_ptr = *stream_it;
   auto &h = *h_ptr;
 
-  // if (HandleType::kRead != stream_h->type)
-  // {
-  //     getLogger()->error("Cannot seek on not reading stream");
-  //     return kFailure;
-  // }
-
   getLogger()->debug("fseek {} {} {}", stream, offset, whence);
-
-  // MultiPartFile &h = stream_h->GetReader();
 
   tOffset computed_offset{0};
 
@@ -1587,10 +1533,19 @@ const char *driver_getlasterror() {
 }
 
 long long int driver_fread(void *ptr, size_t size, size_t count, void *stream) {
-  KH_S3_NOT_CONNECTED(kFailure);
+  if (kFalse == bIsConnected) {
+    getLogger()->error(ERR_NOT_CONNECTED);
+    return (kFailure);
+  };
 
-  ERROR_ON_NULL_ARG(stream, kFailure);
-  ERROR_ON_NULL_ARG(ptr, kFailure);
+  if (!(stream)) {
+    getLogger()->error("ERR_NULL_ARG", __func__);
+    return (kFailure);
+  };
+  if (!(ptr)) {
+    getLogger()->error("ERR_NULL_ARG", __func__);
+    return (kFailure);
+  };
 
   if (0 == size) {
     getLogger()->error("Error passing size of 0");
@@ -1600,7 +1555,12 @@ long long int driver_fread(void *ptr, size_t size, size_t count, void *stream) {
   getLogger()->debug("fread {} {} {} {}", ptr, size, count, stream);
 
   // confirm stream's presence
-  FIND_HANDLE_OR_ERROR(active_reader_handles, stream, kFailure);
+  auto stream_it = FindHandle((active_reader_handles), (stream));
+  if (stream_it == active_reader_handles.end()) {
+    getLogger()->error("Cannot identify stream");
+    return (kFailure);
+  }
+  auto &h_ptr = *stream_it;
   auto &h = *h_ptr;
 
   const tOffset offset = h.offset_;
@@ -1623,39 +1583,33 @@ long long int driver_fread(void *ptr, size_t size, size_t count, void *stream) {
   }
   // end of overflow prevention
 
-  // special case: if offset >= total_size, error if not 0 byte required. 0 byte
-  // required is already done above const tOffset total_size = h.total_size_; if
-  // (offset >= total_size)
-  // {
-  // 	getLogger()->error("Error trying to read more bytes while already out of
-  // bounds"); 	return kFailure;
-  // }
-
-  // // normal cases
-  // if (offset + to_read > total_size)
-  // {
-  // 	to_read = total_size - offset;
-  // 	getLogger()->debug("offset {}, req len {} exceeds file size ({}) ->
-  // reducing len to {}", offset, to_read, 		      total_size, to_read);
-  // }
-  // else
-  // {
   getLogger()->debug("offset = {} to_read = {}", offset, to_read);
-  // }
 
-  auto read_outcome =
-      ReadBytesInFile(h, reinterpret_cast<unsigned char *>(ptr), to_read);
-  RETURN_ON_ERROR(read_outcome, "Error while reading from file", kFailure);
+  long long result;
+  if (ReadBytesInFile(&result, h, reinterpret_cast<unsigned char *>(ptr),
+                      to_read)) {
+    getLogger()->error("Error while reading from file");
+    return (kFailure);
+  }
 
-  return read_outcome.GetResult();
+  return result;
 }
 
 long long int driver_fwrite(const void *ptr, size_t size, size_t count,
                             void *stream) {
-  KH_S3_NOT_CONNECTED(kFailure);
+  if (kFalse == bIsConnected) {
+    getLogger()->error(ERR_NOT_CONNECTED);
+    return (kFailure);
+  };
 
-  ERROR_ON_NULL_ARG(stream, kFailure);
-  ERROR_ON_NULL_ARG(ptr, kFailure);
+  if (!(stream)) {
+    getLogger()->error("ERR_NULL_ARG", __func__);
+    return (kFailure);
+  };
+  if (!(ptr)) {
+    getLogger()->error("ERR_NULL_ARG", __func__);
+    return (kFailure);
+  };
 
   if (0 == size) {
     getLogger()->error("Error passing size 0 to fwrite");
@@ -1664,7 +1618,12 @@ long long int driver_fwrite(const void *ptr, size_t size, size_t count,
 
   getLogger()->debug("fwrite {} {} {} {}", ptr, size, count, stream);
 
-  FIND_HANDLE_OR_ERROR(active_writer_handles, stream, kFailure);
+  auto stream_it = FindHandle((active_writer_handles), (stream));
+  if (stream_it == active_writer_handles.end()) {
+    getLogger()->error("Cannot identify stream");
+    return (kFailure);
+  }
+  auto &h_ptr = *stream_it;
 
   // fast exit for 0
   if (0 == count) {
@@ -1713,8 +1672,10 @@ long long int driver_fwrite(const void *ptr, size_t size, size_t count,
   // upload the content of the buffer until the size of the remaining data is
   // smaller than the minimum upload size
   while (buffer.size() >= WriteFile::buff_min_) {
-    auto outcome = UploadPart(*h_ptr);
-    RETURN_ON_ERROR(outcome, "Error during upload", kFailure);
+    if (UploadPart(*h_ptr)) {
+      getLogger()->error("Error during upload");
+      return (kFailure);
+    }
 
     // copy remaining data up to capacity
     buffer.clear();
@@ -1729,27 +1690,33 @@ long long int driver_fwrite(const void *ptr, size_t size, size_t count,
 }
 
 int driver_fflush(void *) {
-  KH_S3_NOT_CONNECTED(kFailure);
+  if (kFalse == bIsConnected) {
+    getLogger()->error(ERR_NOT_CONNECTED);
+    return (kFailure);
+  };
 
   getLogger()->debug("Flushing (does nothing...)");
   return kSuccess;
 }
 
 int driver_remove(const char *filename) {
-  KH_S3_NOT_CONNECTED(kFalse);
+  if (kFalse == bIsConnected) {
+    getLogger()->error(ERR_NOT_CONNECTED);
+    return (kFalse);
+  };
 
-  ERROR_ON_NULL_ARG(filename, kFalse);
+  if (!(filename)) {
+    getLogger()->error("ERR_NULL_ARG", __func__);
+    return (kFalse);
+  };
 
   getLogger()->debug("remove {}", filename);
 
-  NAMES_OR_ERROR(filename, kFalse);
-
-  // auto maybe_parsed_names = ParseS3Uri(filename);
-  // ERROR_ON_NAMES(maybe_parsed_names, kFalse);
-  // auto& names = maybe_parsed_names.GetResult();
-  // std::string bucket_name, object_name;
-  // ParseS3Uri(filename, bucket_name, object_name);
-  // FallbackToDefaultBucket(bucket_name);
+  ParseUriResult names;
+  if (ParseS3Uri(&names, (filename))) {
+    getLogger()->error(ERR_URL_PARSING);
+    return (((kOtherFailure)));
+  }
 
   Aws::S3::Model::DeleteObjectRequest request;
 
@@ -1767,9 +1734,15 @@ int driver_remove(const char *filename) {
 }
 
 int driver_rmdir(const char *filename) {
-  KH_S3_NOT_CONNECTED(kOtherFailure);
+  if (kFalse == bIsConnected) {
+    getLogger()->error(ERR_NOT_CONNECTED);
+    return (kOtherFailure);
+  };
 
-  ERROR_ON_NULL_ARG(filename, kOtherFailure);
+  if (!(filename)) {
+    getLogger()->error("ERR_NULL_ARG", __func__);
+    return (kOtherFailure);
+  };
   getLogger()->debug("rmdir {}", filename);
 
   getLogger()->debug("Remove dir (does nothing...)");
@@ -1777,9 +1750,15 @@ int driver_rmdir(const char *filename) {
 }
 
 int driver_mkdir(const char *filename) {
-  KH_S3_NOT_CONNECTED(kOtherFailure);
+  if (kFalse == bIsConnected) {
+    getLogger()->error(ERR_NOT_CONNECTED);
+    return (kOtherFailure);
+  };
 
-  ERROR_ON_NULL_ARG(filename, kOtherFailure);
+  if (!(filename)) {
+    getLogger()->error("ERR_NULL_ARG", __func__);
+    return (kOtherFailure);
+  };
   getLogger()->debug("mkdir {}", filename);
 
   return kOtherSuccess;
@@ -1793,18 +1772,33 @@ long long int driver_diskFreeSpace(const char *filename) {
 
 int driver_copyToLocal(const char *sSourceFilePathName,
                        const char *sDestFilePathName) {
-  KH_S3_NOT_CONNECTED(kOtherFailure);
-  ERROR_ON_NULL_ARG(sSourceFilePathName, kOtherFailure);
-  ERROR_ON_NULL_ARG(sDestFilePathName, kOtherFailure);
+  if (kFalse == bIsConnected) {
+    getLogger()->error(ERR_NOT_CONNECTED);
+    return (kOtherFailure);
+  };
+  if (!(sSourceFilePathName)) {
+    getLogger()->error("ERR_NULL_ARG", __func__);
+    return (kOtherFailure);
+  };
+  if (!(sDestFilePathName)) {
+    getLogger()->error("ERR_NULL_ARG", __func__);
+    return (kOtherFailure);
+  };
 
   getLogger()->debug("copyToLocal {} {}", sSourceFilePathName,
                      sDestFilePathName);
 
   // try opening the online source file
-  NAMES_OR_ERROR(sSourceFilePathName, kOtherFailure);
-  auto make_reader_outcome = MakeReaderPtr(names.bucket_, names.object_);
-  RETURN_ON_ERROR(make_reader_outcome, "Error while opening remote file",
-                  kOtherFailure);
+  ParseUriResult names;
+  if (ParseS3Uri(&names, (sSourceFilePathName))) {
+    getLogger()->error(ERR_URL_PARSING);
+    return (((kOtherFailure)));
+  }
+  ReaderPtr readerPtr;
+  if (MakeReaderPtr(&readerPtr, names.bucket_, names.object_)) {
+    getLogger()->error("Error while opening remote file");
+    return (kOtherFailure);
+  }
 
   // open local file
   std::ofstream file_stream(sDestFilePathName, std::ios::binary);
@@ -1842,8 +1836,10 @@ int driver_copyToLocal(const char *sSourceFilePathName,
           MakeGetObjectRequest(from.bucketname_, from.filenames_[part], etag,
                                MakeByteRange(start, end));
       auto get_outcome = client->GetObject(request);
-      RETURN_ON_ERROR(get_outcome, "Error while downloading file content",
-                      false);
+      if (!((get_outcome)).IsSuccess()) {
+        LogBadOutcome((get_outcome), ("Error while downloading file content"));
+        return (false);
+      }
 
       // get ownership of the result and its underlying stream
       const Aws::S3::Model::GetObjectResult result{
@@ -1864,7 +1860,7 @@ int driver_copyToLocal(const char *sSourceFilePathName,
     return true;
   };
 
-  const Reader &reader = *(make_reader_outcome.GetResult());
+  const Reader &reader = *readerPtr;
   const size_t parts_count{reader.filenames_.size()};
 
   bool op_res = true;
@@ -1892,15 +1888,28 @@ int driver_copyToLocal(const char *sSourceFilePathName,
 
 int driver_copyFromLocal(const char *sSourceFilePathName,
                          const char *sDestFilePathName) {
-  KH_S3_NOT_CONNECTED(kFailure);
+  if (kFalse == bIsConnected) {
+    getLogger()->error(ERR_NOT_CONNECTED);
+    return (kFailure);
+  };
 
-  ERROR_ON_NULL_ARG(sSourceFilePathName, kOtherFailure);
-  ERROR_ON_NULL_ARG(sDestFilePathName, kOtherFailure);
+  if (!(sSourceFilePathName)) {
+    getLogger()->error("ERR_NULL_ARG", __func__);
+    return (kOtherFailure);
+  };
+  if (!(sDestFilePathName)) {
+    getLogger()->error("ERR_NULL_ARG", __func__);
+    return (kOtherFailure);
+  };
 
   getLogger()->debug("copyFromLocal {} {}", sSourceFilePathName,
                      sDestFilePathName);
 
-  NAMES_OR_ERROR(sDestFilePathName, kOtherFailure);
+  ParseUriResult names;
+  if (ParseS3Uri(&names, (sDestFilePathName))) {
+    getLogger()->error(ERR_URL_PARSING);
+    return (((kOtherFailure)));
+  }
 
   // Configuration de la requête pour envoyer l'objet
   Aws::S3::Model::PutObjectRequest object_request;
@@ -1946,16 +1955,28 @@ int driver_copyFromLocal(const char *sSourceFilePathName,
  */
 int driver_concat(const char *destfilename, const char **sourcefilenames,
                   size_t sourcefilecount) {
-  KH_S3_NOT_CONNECTED(kOtherFailure);
-  ERROR_ON_NULL_ARG(destfilename, kOtherFailure);
-  ERROR_ON_NULL_ARG(sourcefilenames, kOtherFailure);
+  if (kFalse == bIsConnected) {
+    getLogger()->error(ERR_NOT_CONNECTED);
+    return (kOtherFailure);
+  };
+  if (!(destfilename)) {
+    getLogger()->error("ERR_NULL_ARG", __func__);
+    return (kOtherFailure);
+  };
+  if (!(sourcefilenames)) {
+    getLogger()->error("ERR_NULL_ARG", __func__);
+    return (kOtherFailure);
+  };
 
   if (sourcefilecount == 0) {
     getLogger()->error("driver_concat: no source files");
     return kOtherFailure;
   }
-
-  NAMES_OR_ERROR(destfilename, kOtherFailure);
+  ParseUriResult names;
+  if (ParseS3Uri(&names, (destfilename))) {
+    getLogger()->error(ERR_URL_PARSING);
+    return (((kOtherFailure)));
+  }
 
   size_t sp = 0;
   if (IsMultifile(names.object_, sp)) {
@@ -1988,11 +2009,16 @@ int driver_concat(const char *destfilename, const char **sourcefilenames,
   std::set<Aws::String> sources_to_delete;
 
   for (size_t i = 0; i < sourcefilecount; ++i) {
-    ERROR_ON_NULL_ARG(sourcefilenames[i], kOtherFailure);
-    auto parsed = ParseS3Uri(sourcefilenames[i]);
-    RETURN_ON_ERROR(parsed, "Error parsing source URI", kOtherFailure);
+    if (!(sourcefilenames[i])) {
+      getLogger()->error("ERR_NULL_ARG", __func__);
+      return (kOtherFailure);
+    };
+    ParseUriResult s;
+    if (ParseS3Uri(&s, sourcefilenames[i])) {
+      getLogger()->error("Error parsing source URI");
+      return (kOtherFailure);
+    }
 
-    const auto &s = parsed.GetResult();
     if (s.bucket_ != names.bucket_) {
       getLogger()->error(
           "driver_concat: sources must be in same bucket as destination");
@@ -2000,8 +2026,10 @@ int driver_concat(const char *destfilename, const char **sourcefilenames,
     }
 
     auto head_outcome = HeadObject(s.bucket_, s.object_);
-    RETURN_ON_ERROR(head_outcome, "Error getting source metadata",
-                    kOtherFailure);
+    if (!((head_outcome)).IsSuccess()) {
+      LogBadOutcome((head_outcome), ("Error getting source metadata"));
+      return (kOtherFailure);
+    }
 
     const auto &head = head_outcome.GetResult();
     long long size = head.GetContentLength();
@@ -2094,12 +2122,12 @@ int driver_concat(const char *destfilename, const char **sourcefilenames,
     getLogger()->info("concat_stage: level={}, group={}, dest={}, sources={}",
                       level, group_idx, dest_key, inputs.size());
 
-    auto writer_outcome = MakeWriterPtr(names.bucket_, dest_key);
-    if (!writer_outcome.IsSuccess()) {
-      LogBadOutcome(writer_outcome, "Error creating multipart upload");
+    WriterPtr writerPtr;
+    if (MakeWriterPtr(&writerPtr, names.bucket_, dest_key)) {
+      getLogger()->error("Error creating multipart upload");
       return false;
     }
-    auto writer = std::move(writer_outcome.GetResultWithOwnership());
+    auto writer = writerPtr.get();
 
     auto abort_upload = [&]() {
       client->AbortMultipartUpload(
@@ -2130,18 +2158,16 @@ int driver_concat(const char *destfilename, const char **sourcefilenames,
       Aws::Vector<unsigned char> tmp;
       tmp.reserve(static_cast<size_t>(len));
 
-      auto dl_outcome = DownloadFileRangeToVector(
-          src.bucket, src.key, tmp, static_cast<int64_t>(start),
-          static_cast<int64_t>(start + len - 1), src.etag);
+      long long dlsize;
+      if (DownloadFileRangeToVector(
+              &dlsize, src.bucket, src.key, tmp, static_cast<int64_t>(start),
+              static_cast<int64_t>(start + len - 1), src.etag)) {
 
-      if (!dl_outcome.IsSuccess()) {
-        Aws::String msg = "concat_stage: download failed: " +
-                          dl_outcome.GetError().GetMessage();
-        getLogger()->error(msg);
+        getLogger()->error("concat_stage: download failed");
         return false;
       }
 
-      if (dl_outcome.GetResult() != len) {
+      if (dlsize != len) {
         getLogger()->error(
             "concat_stage: short read while downloading source range");
         return false;
@@ -2176,9 +2202,8 @@ int driver_concat(const char *destfilename, const char **sourcefilenames,
       getLogger()->debug("concat_stage: UploadPart (part #{}) size={}",
                          writer->part_tracker_, sz);
 
-      auto outcome = UploadPart(*writer);
-      if (!outcome.IsSuccess()) {
-        LogBadOutcome(outcome, "Error during UploadPart");
+      if (UploadPart(*writer)) {
+        getLogger()->error("Error during UploadPart");
         return false;
       }
 
@@ -2204,10 +2229,8 @@ int driver_concat(const char *destfilename, const char **sourcefilenames,
           "concat_stage: UploadPartCopy (part #{}) {} [{}..{}] len={}",
           writer->part_tracker_, src.key, start, start + len - 1, len);
 
-      auto outcome =
-          UploadPartCopy(*writer, MakeByteRange(start, start + len - 1));
-      if (!outcome.IsSuccess()) {
-        LogBadOutcome(outcome, "Error during UploadPartCopy");
+      if (UploadPartCopy(*writer, MakeByteRange(start, start + len - 1))) {
+        getLogger()->error("Error during UploadPartCopy");
         return false;
       }
 

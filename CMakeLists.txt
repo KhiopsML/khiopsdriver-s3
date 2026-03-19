@@ -96,7 +96,9 @@ endif()
 
 add_library(khiopsdriver_file_s3 SHARED src/s3plugin.h src/s3plugin_internal.h
                                         src/s3plugin.cpp src/logging.hpp src/logging.cpp
-                                        shared/src/khiops_driver_common/logging.hpp shared/src/khiops_driver_common/logging.cpp)
+                                        shared/src/khiops_driver_common/logging.hpp shared/src/khiops_driver_common/logging.cpp
+                                        shared/src/khiops_driver_common/contrib.hpp
+                                        shared/src/khiops_driver_common/util.hpp)
 
 target_include_directories(khiopsdriver_file_s3 PRIVATE ${AWSSDK_INCLUDE_DIRS} shared/src)
 target_link_options(khiopsdriver_file_s3 PRIVATE $<$<CONFIG:RELEASE>:-s>
