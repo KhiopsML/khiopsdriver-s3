@@ -10,7 +10,7 @@
 #include "khiops_driver_common/util.hpp"
 #include "contrib/ini.h"
 
-#include "logging.hpp"
+#include "khiops_driver_common/logging.hpp"
 
 #include <aws/core/Aws.h>
 #include <aws/core/auth/AWSCredentials.h>
@@ -45,7 +45,7 @@ using namespace Aws::Utils::Logging;
 using namespace s3plugin;
 using namespace khiops_driver_common::util;
 
-using s3plugin::logging::getLogger;
+using khiops_driver_common::logging::getLogger;
 
 using S3Object = Aws::S3::Model::Object;
 

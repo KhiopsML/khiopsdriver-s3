@@ -104,8 +104,6 @@ add_library(
   src/s3plugin.h
   src/s3plugin_internal.h
   src/s3plugin.cpp
-  src/logging.hpp
-  src/logging.cpp
   shared/src/khiops_driver_common/logging.hpp
   shared/src/khiops_driver_common/logging.cpp
   shared/src/khiops_driver_common/contrib.hpp
@@ -141,6 +139,11 @@ target_compile_options(
   PRIVATE
     $<$<CXX_COMPILER_ID:MSVC>:-Wall;/wd4582;/wd4583;/wd4625;/wd4626;/wd4710;/wd4711;/wd4820;/wd4868;/GR-;/Oi;/Zi>
   PRIVATE $<$<CXX_COMPILER_ID:AppleClang,Clang,GNU>:-Wall;-Wextra;-pedantic>)
+
+target_compile_definitions(khiopsdriver_file_s3 PRIVATE
+  LOGGERNAME="s3driver"
+  LOGLEVEL_ENVVARNAME="S3_DRIVER_LOGLEVEL"
+  LOGFILE_ENVVARNAME="S3_DRIVER_LOGFILE")
 
 option(BUILD_TESTS "Build test programs" OFF)
 
