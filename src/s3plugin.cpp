@@ -728,7 +728,7 @@ int driver_exist(const char *filename) {
   };
 
   if (!filename) {
-    getLogger()->error("ERR_NULL_ARG", __func__);
+    getLogger()->error(ERR_NULL_ARG, __func__);
     return kFalse;
   }
 
@@ -759,7 +759,7 @@ int driver_fileExists(const char *sFilePathName) {
   };
 
   if (!(sFilePathName)) {
-    getLogger()->error("ERR_NULL_ARG", __func__);
+    getLogger()->error(ERR_NULL_ARG, __func__);
     return (kFalse);
   };
 
@@ -806,7 +806,7 @@ int driver_dirExists(const char *sFilePathName) {
   };
 
   if (!(sFilePathName)) {
-    getLogger()->error("ERR_NULL_ARG", __func__);
+    getLogger()->error(ERR_NULL_ARG, __func__);
     return (kFalse);
   };
 
@@ -959,7 +959,8 @@ int getFileSize(long long *size, const Aws::String &bucket_name,
 
   // special case: one element
   if (file_list.size() == 1) {
-    return total_size;
+    *size = total_size;
+    return 0;
   }
 
   // sampling: pick representative files for header checks
@@ -1022,7 +1023,7 @@ long long int driver_getFileSize(const char *filename) {
   };
 
   if (!(filename)) {
-    getLogger()->error("ERR_NULL_ARG", __func__);
+    getLogger()->error(ERR_NULL_ARG, __func__);
     return (kFailure);
   };
 
@@ -1289,7 +1290,7 @@ void *driver_fopen(const char *filename, char mode) {
   };
 
   if (!(filename)) {
-    getLogger()->error("ERR_NULL_ARG", __func__);
+    getLogger()->error(ERR_NULL_ARG, __func__);
     return (nullptr);
   };
 
@@ -1403,7 +1404,7 @@ int driver_fclose(void *stream) {
   };
 
   if (!(stream)) {
-    getLogger()->error("ERR_NULL_ARG", __func__);
+    getLogger()->error(ERR_NULL_ARG, __func__);
     return (kFailure);
   };
 
@@ -1456,7 +1457,7 @@ int driver_fseek(void *stream, long long int offset, int whence) {
   constexpr long long max_val = std::numeric_limits<long long>::max();
 
   if (!(stream)) {
-    getLogger()->error("ERR_NULL_ARG", __func__);
+    getLogger()->error(ERR_NULL_ARG, __func__);
     return (kFailure);
   };
 
@@ -1530,11 +1531,11 @@ long long int driver_fread(void *ptr, size_t size, size_t count, void *stream) {
   };
 
   if (!(stream)) {
-    getLogger()->error("ERR_NULL_ARG", __func__);
+    getLogger()->error(ERR_NULL_ARG, __func__);
     return (kFailure);
   };
   if (!(ptr)) {
-    getLogger()->error("ERR_NULL_ARG", __func__);
+    getLogger()->error(ERR_NULL_ARG, __func__);
     return (kFailure);
   };
 
@@ -1594,11 +1595,11 @@ long long int driver_fwrite(const void *ptr, size_t size, size_t count,
   };
 
   if (!(stream)) {
-    getLogger()->error("ERR_NULL_ARG", __func__);
+    getLogger()->error(ERR_NULL_ARG, __func__);
     return (kFailure);
   };
   if (!(ptr)) {
-    getLogger()->error("ERR_NULL_ARG", __func__);
+    getLogger()->error(ERR_NULL_ARG, __func__);
     return (kFailure);
   };
 
@@ -1697,7 +1698,7 @@ int driver_remove(const char *filename) {
   };
 
   if (!(filename)) {
-    getLogger()->error("ERR_NULL_ARG", __func__);
+    getLogger()->error(ERR_NULL_ARG, __func__);
     return (kFalse);
   };
 
@@ -1731,7 +1732,7 @@ int driver_rmdir(const char *filename) {
   };
 
   if (!(filename)) {
-    getLogger()->error("ERR_NULL_ARG", __func__);
+    getLogger()->error(ERR_NULL_ARG, __func__);
     return (kOtherFailure);
   };
   getLogger()->debug("rmdir {}", filename);
@@ -1747,7 +1748,7 @@ int driver_mkdir(const char *filename) {
   };
 
   if (!(filename)) {
-    getLogger()->error("ERR_NULL_ARG", __func__);
+    getLogger()->error(ERR_NULL_ARG, __func__);
     return (kOtherFailure);
   };
   getLogger()->debug("mkdir {}", filename);
@@ -1768,11 +1769,11 @@ int driver_copyToLocal(const char *sSourceFilePathName,
     return (kOtherFailure);
   };
   if (!(sSourceFilePathName)) {
-    getLogger()->error("ERR_NULL_ARG", __func__);
+    getLogger()->error(ERR_NULL_ARG, __func__);
     return (kOtherFailure);
   };
   if (!(sDestFilePathName)) {
-    getLogger()->error("ERR_NULL_ARG", __func__);
+    getLogger()->error(ERR_NULL_ARG, __func__);
     return (kOtherFailure);
   };
 
@@ -1885,11 +1886,11 @@ int driver_copyFromLocal(const char *sSourceFilePathName,
   };
 
   if (!(sSourceFilePathName)) {
-    getLogger()->error("ERR_NULL_ARG", __func__);
+    getLogger()->error(ERR_NULL_ARG, __func__);
     return (kOtherFailure);
   };
   if (!(sDestFilePathName)) {
-    getLogger()->error("ERR_NULL_ARG", __func__);
+    getLogger()->error(ERR_NULL_ARG, __func__);
     return (kOtherFailure);
   };
 
@@ -1951,11 +1952,11 @@ int driver_concat(const char *destfilename, const char **sourcefilenames,
     return (kOtherFailure);
   };
   if (!(destfilename)) {
-    getLogger()->error("ERR_NULL_ARG", __func__);
+    getLogger()->error(ERR_NULL_ARG, __func__);
     return (kOtherFailure);
   };
   if (!(sourcefilenames)) {
-    getLogger()->error("ERR_NULL_ARG", __func__);
+    getLogger()->error(ERR_NULL_ARG, __func__);
     return (kOtherFailure);
   };
 
@@ -2001,7 +2002,7 @@ int driver_concat(const char *destfilename, const char **sourcefilenames,
 
   for (size_t i = 0; i < sourcefilecount; ++i) {
     if (!(sourcefilenames[i])) {
-      getLogger()->error("ERR_NULL_ARG", __func__);
+      getLogger()->error(ERR_NULL_ARG, __func__);
       return (kOtherFailure);
     };
     ParseUriResult s;
