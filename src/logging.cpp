@@ -16,9 +16,12 @@ static shared_ptr<spdlog::logger> logger;
 namespace {
 struct LazyLoggerInitializer {
   LazyLoggerInitializer() {
-    loglevel = khiops_driver_common::util::env::GetEnvVarOrDefault("S3_DRIVER_LOGLEVEL", "off", true);
-    logfile = khiops_driver_common::util::env::GetEnvVar("S3_DRIVER_LOGFILE", true);
-    logger = khiops_driver_common::logging::getLogger("s3driver", loglevel, logfile, false);
+    loglevel = khiops_driver_common::util::env::GetEnvVarOrDefault(
+        "S3_DRIVER_LOGLEVEL", "off", true);
+    logfile =
+        khiops_driver_common::util::env::GetEnvVar("S3_DRIVER_LOGFILE", true);
+    logger = khiops_driver_common::logging::getLogger("s3driver", loglevel,
+                                                      logfile, false);
   }
 };
 } // anonymous namespace

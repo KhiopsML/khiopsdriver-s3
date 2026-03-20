@@ -18,7 +18,9 @@ find_package(
   AWSSDK CONFIG
   COMPONENTS core s3
   REQUIRED)
-add_executable(s3_test s3_test.cpp drivertest.cpp ${CMAKE_SOURCE_DIR}/shared/src/khiops_driver_common/contrib.hpp)
+add_executable(
+  s3_test s3_test.cpp drivertest.cpp
+          ${CMAKE_SOURCE_DIR}/shared/src/khiops_driver_common/contrib.hpp)
 
 target_compile_options(
   s3_test
@@ -37,19 +39,21 @@ target_include_directories(
 target_link_libraries(s3_test PRIVATE ${AWSSDK_LIBRARIES})
 
 target_link_libraries(s3_test PRIVATE GTest::gtest GTest::gmock
-                                         GTest::gmock_main khiopsdriver_file_s3)
+                                      GTest::gmock_main khiopsdriver_file_s3)
 
-if (WIN32)
+if(WIN32)
   target_link_libraries(s3_test PRIVATE ws2_32)
 endif()
 
-gtest_discover_tests(s3_test 
+gtest_discover_tests(
+  s3_test
   PROPERTIES
-    ENVIRONMENT "LSAN_OPTIONS=suppressions=${CMAKE_SOURCE_DIR}/lsan_suppressions.txt"
-)
+    ENVIRONMENT
+    "LSAN_OPTIONS=suppressions=${CMAKE_SOURCE_DIR}/lsan_suppressions.txt")
 
 add_executable(plugin_test plugin_test.cpp path_helper.cpp)
-target_include_directories(plugin_test PRIVATE ${${PROJECT_NAME}_SOURCE_DIR}/src)
+target_include_directories(plugin_test
+                           PRIVATE ${${PROJECT_NAME}_SOURCE_DIR}/src)
 target_compile_options(
   plugin_test
   PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/W4;/wd4101;/wd4710;/wd4711>

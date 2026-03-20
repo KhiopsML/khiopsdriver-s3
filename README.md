@@ -1,4 +1,4 @@
-# Khiops driver for AWS S3 
+# Khiops driver for AWS S3
 
 This repository hosts the source code for the Khiops filesystem driver enabling transparent manipulation for data stored in AWS S3 buckets.
 

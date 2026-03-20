@@ -58,7 +58,7 @@ int (*ptr_driver_copyToLocal)(const char *sourcefilename,
                               const char *destfilename);
 int (*ptr_driver_copyFromLocal)(const char *sourcefilename,
                                 const char *destfilename);
-bool (*ptr_test_compareFiles)(const char* local_file_path, const char* s3_uri);
+bool (*ptr_test_compareFiles)(const char *local_file_path, const char *s3_uri);
 
 /* functions prototype */
 void usage();

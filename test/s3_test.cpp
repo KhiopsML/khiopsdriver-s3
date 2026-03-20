@@ -29,11 +29,13 @@ void TestPatternMatching(const std::vector<std::string> &must_match,
                          const std::vector<std::string> &no_match,
                          const std::string &pattern) {
   for (auto &s : must_match) {
-    ASSERT_TRUE(khiops_driver_common::util::glob::GitignoreGlobMatch(s, pattern));
+    ASSERT_TRUE(
+        khiops_driver_common::util::glob::GitignoreGlobMatch(s, pattern));
   }
 
   for (auto &s : no_match) {
-    ASSERT_FALSE(khiops_driver_common::util::glob::GitignoreGlobMatch(s, pattern));
+    ASSERT_FALSE(
+        khiops_driver_common::util::glob::GitignoreGlobMatch(s, pattern));
   }
 }
 
@@ -132,7 +134,9 @@ TEST(S3DriverTest, GetDriverName) {
   ASSERT_STREQ(driver_getDriverName(), "S3 driver");
 }
 
-TEST(S3DriverTest, GetVersion) { ASSERT_STREQ(driver_getVersion(), DRIVER_VERSION); }
+TEST(S3DriverTest, GetVersion) {
+  ASSERT_STREQ(driver_getVersion(), DRIVER_VERSION);
+}
 
 TEST(S3DriverTest, GetScheme) { ASSERT_STREQ(driver_getScheme(), "s3"); }
 
@@ -292,9 +296,10 @@ ListObjectsV2Outcome MakeListObjectOutcome(Aws::Vector<Object> &&v,
 Aws::Vector<Object> MakeObjectVector(Aws::Vector<Aws::String> &&keys,
                                      Aws::Vector<long long> &&sizes) {
   Aws::Vector<Object> res(keys.size());
-  for (size_t i=0; i<keys.size(); ++i) {
+  for (size_t i = 0; i < keys.size(); ++i) {
     res[i].SetKey(std::move(keys[i]));
-    if (i < sizes.size()) res[i].SetSize(sizes[i]);
+    if (i < sizes.size())
+      res[i].SetSize(sizes[i]);
     res[i].SetETag("\"etag-1\"");
   }
   return res;
@@ -660,29 +665,28 @@ TEST_F(S3DriverTestFixture, GetFileSize_Pattern_MultiMatchLarge_SameHeader_OK) {
   Aws::Vector<long long> sizes(num_elements);
   Aws::Vector<Aws::String> bodies(num_elements);
   long long expected_size = 0;
-  for (int i=0; i<num_elements; i++) {
-    const Aws::String key =  MakeKeyFromPatternStub(std::to_string(i));
+  for (int i = 0; i < num_elements; i++) {
+    const Aws::String key = MakeKeyFromPatternStub(std::to_string(i));
     const Aws::String body = header + blob_content;
     keys[i] = key;
     sizes[i] = body.size();
     bodies[i] = body;
     expected_size +=
-      static_cast<long long>(i == 0 ? body.size() : blob_content.size());
+        static_cast<long long>(i == 0 ? body.size() : blob_content.size());
   }
 
-  auto content =
-      MakeObjectVector(std::move(keys), std::move(sizes));
+  auto content = MakeObjectVector(std::move(keys), std::move(sizes));
   Aws::String token;
 
   // list
   SIMPLE_LIST_CALL;
 
-  ::testing::InSequence s; // Not so important: we don't need our expected values in the right sequence
+  ::testing::InSequence s; // Not so important: we don't need our expected
+                           // values in the right sequence
   // read header
-  for (int i=0; i<num_elements; i++) {
-    if (i<5 || 
-        i>=num_elements-5 ||
-        (i-5) % ((num_elements - 10)/10) == 0) {
+  for (int i = 0; i < num_elements; i++) {
+    if (i < 5 || i >= num_elements - 5 ||
+        (i - 5) % ((num_elements - 10) / 10) == 0) {
       std::cout << i << std::endl;
       EXPECT_GETOBJECT
       GETOBJECT_CALL(bodies[i]).RetiresOnSaturation();
@@ -692,9 +696,11 @@ TEST_F(S3DriverTestFixture, GetFileSize_Pattern_MultiMatchLarge_SameHeader_OK) {
   GetFileSize_Pattern_OK(expected_size);
 }
 
-TEST_F(S3DriverTestFixture, GetFileSize_Pattern_MultiMatchLarge_DifferentHeader_OK) {
+TEST_F(S3DriverTestFixture,
+       GetFileSize_Pattern_MultiMatchLarge_DifferentHeader_OK) {
   const int num_elements = 40;
-  const int different_element = 5; // Select an element that we know will be selected and give it a different header
+  const int different_element = 5; // Select an element that we know will be
+                                   // selected and give it a different header
   const Aws::String header = "header\n";
   const Aws::String blob_content = "content\n";
 
@@ -702,11 +708,11 @@ TEST_F(S3DriverTestFixture, GetFileSize_Pattern_MultiMatchLarge_DifferentHeader_
   Aws::Vector<Aws::String> keys(num_elements);
   Aws::Vector<long long> sizes(num_elements);
   Aws::Vector<Aws::String> bodies(num_elements);
-  for (int i=0; i<num_elements; i++) {
+  for (int i = 0; i < num_elements; i++) {
     const Aws::String key = MakeKeyFromPatternStub(std::to_string(i));
     const Aws::String body = header + blob_content;
     keys[i] = key;
-    if (i == different_element) { 
+    if (i == different_element) {
       sizes[i] = blob_content.size();
       bodies[i] = blob_content;
     } else {
@@ -714,21 +720,25 @@ TEST_F(S3DriverTestFixture, GetFileSize_Pattern_MultiMatchLarge_DifferentHeader_
       bodies[i] = body;
     }
   }
-  long long expected_size = (num_elements-1) * (header.size()+blob_content.size()) + blob_content.size();
+  long long expected_size =
+      (num_elements - 1) * (header.size() + blob_content.size()) +
+      blob_content.size();
 
-  auto content =
-      MakeObjectVector(std::move(Aws::Vector<Aws::String>(keys)), std::move(sizes));
+  auto content = MakeObjectVector(std::move(Aws::Vector<Aws::String>(keys)),
+                                  std::move(sizes));
   Aws::String token;
 
   // list
   SIMPLE_LIST_CALL;
 
-  ::testing::InSequence s; // Important: we want our expected values in the right sequence
+  ::testing::InSequence
+      s; // Important: we want our expected values in the right sequence
   // read header
-  for (int i=0; i<=different_element; i++) { // Stop after the element with different header is found to avoid unused mock
-    if (i<5 || 
-        i>=num_elements-5 ||
-        (i-5) % ((num_elements - 10)/10) == 0) {
+  for (int i = 0; i <= different_element;
+       i++) { // Stop after the element with different header is found to avoid
+              // unused mock
+    if (i < 5 || i >= num_elements - 5 ||
+        (i - 5) % ((num_elements - 10) / 10) == 0) {
       EXPECT_CALL(*mock_client_, GetObject)
       GETOBJECT_CALL(bodies[i]).RetiresOnSaturation();
     }
