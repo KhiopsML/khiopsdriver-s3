@@ -12,12 +12,13 @@
           fail-fast: false
           matrix:
             env:
+              - {os: ubuntu-latest, os-family: linux-x64}
               - {os: ubuntu-22.04, os-family: linux-x64}
-              - {os: ubuntu-24.04, os-family: linux-x64}
-              - {os: windows-2022, os-family: win-64}
-              #- {os: macos-12, os-family: osx-64}
-              - {os: macos-13, os-family: osx-64}
+              - {os: macos-latest, os-family: osx-arm64}
+              - {os: macos-15-intel, os-family: osx-64}
               - {os: macos-14, os-family: osx-arm64}
+              - {os: windows-latest, os-family: win-64}
+              - {os: windows-2022, os-family: win-64}
         runs-on: ${{ matrix.env.os }}
         permissions:
           contents: 'read'
