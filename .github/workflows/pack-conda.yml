@@ -96,7 +96,7 @@ jobs:
           python-version: '3.12'
           conda-remove-defaults: true
       - name: Install the khiops-core Conda package
-        run: conda install -c khiops-dev khiops-core==10.3.0
+        run: conda install -c khiops-dev khiops-core==11.0.0
       - name: Download Conda Package Artifact
         uses: actions/download-artifact@v4
         with:
