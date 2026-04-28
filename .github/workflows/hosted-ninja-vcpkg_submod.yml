@@ -129,7 +129,8 @@ jobs:
         with:
           name: binary-${{ matrix.os }}
           path: |
-            builds/ninja-multi-vcpkg/lib/*.dylib
-            builds/ninja-multi-vcpkg/lib/*.so
-            builds/ninja-multi-vcpkg/lib/*.dll
+            build/release/lib/*.dylib
+            build/release/lib/*.so
+            build/release/bin/*.dll
+            build/release/bin/*.lib
           if-no-files-found: ignore
