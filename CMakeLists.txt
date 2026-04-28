@@ -75,8 +75,13 @@ set(CMAKE_VISIBILITY_INLINES_HIDDEN 1)
 #
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY $<1:${CMAKE_BINARY_DIR}/lib/>)
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY $<1:${CMAKE_BINARY_DIR}/lib/>)
-set(CMAKE_RUNTIME_OUTPUT_DIRECTORY $<1:${CMAKE_BINARY_DIR}/lib/>)
-message(STATUS "Executables will be stored in ${CMAKE_BINARY_DIR}/bin/")
+if(WIN32)
+  set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
+  message(STATUS "Executables will be stored in ${CMAKE_BINARY_DIR}/bin/")
+else()
+  set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
+  message(STATUS "Executables will be stored in ${CMAKE_BINARY_DIR}/lib/")
+endif()
 message(STATUS "Libraries will be stored in ${CMAKE_BINARY_DIR}/lib/")
 
 # Avoid generating shared libs with version number in the filename
