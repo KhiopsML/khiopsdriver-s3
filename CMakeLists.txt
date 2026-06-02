@@ -13,6 +13,7 @@ endif()
 cmake_minimum_required(VERSION 3.20)
 # Enforce c++11 standard.
 set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # Get project version from the header file
 file(READ "src/s3plugin.h" H_FILE)
@@ -59,20 +60,6 @@ endif()
 # Exclude googletest from the installation and packages
 set(INSTALL_GTEST OFF)
 set(INSTALL_GMOCK OFF)
-
-# MSVC: Eliminate some options the old CMake way because VS sets them with
-# undesired default values
-#
-# * the C++ exception flags
-# * the runtime information flags
-# * the debug information generation flags
-#
-if(MSVC)
-  string(REGEX REPLACE "/EH[a-z]+" "" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
-  string(REGEX REPLACE "/GR" "" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
-  string(REGEX REPLACE "/Zi" "" CMAKE_CXX_FLAGS_DEBUG
-                       "${CMAKE_CXX_FLAGS_DEBUG}")
-endif()
 
 include(GoogleTest)
 enable_testing()
@@ -152,8 +139,7 @@ target_link_libraries(khiopsdriver_file_s3 PRIVATE ${AWSSDK_LIBRARIES}
 
 set_target_properties(
   khiopsdriver_file_s3
-  PROPERTIES PUBLIC_HEADER ${CMAKE_CURRENT_SOURCE_DIR}/s3plugin.h
-             SOVERSION ${PROJECT_VERSION_MAJOR}
+  PROPERTIES SOVERSION ${PROJECT_VERSION_MAJOR}
              VERSION ${PROJECT_VERSION})
 
 # For consistent naming across platforms
@@ -192,12 +178,20 @@ if(BUILD_TESTS)
   add_subdirectory("shared/integrationtests")
 endif(BUILD_TESTS)
 
-install(
-  TARGETS khiopsdriver_file_s3
-  LIBRARY DESTINATION lib
-  ARCHIVE DESTINATION lib # lib on windows
-  RUNTIME DESTINATION bin # dll on windows
-)
+if(DEFINED SKBUILD)
+  # These paths are needed so that Khiops finds the driver.
+  install(
+    TARGETS khiopsdriver_file_s3
+    LIBRARY DESTINATION ${SKBUILD_DATA_DIR}/lib
+    ARCHIVE DESTINATION ${SKBUILD_DATA_DIR}/lib # lib on windows
+    RUNTIME DESTINATION ${SKBUILD_SCRIPTS_DIR}) # dll on windows
+else()
+  install(
+    TARGETS khiopsdriver_file_s3
+    LIBRARY DESTINATION lib
+    ARCHIVE DESTINATION lib # lib on windows
+    RUNTIME DESTINATION bin) # dll on windows
+endif()
 
 set(CPACK_PACKAGE_VENDOR Orange)
 set(CPACK_PACKAGE_HOMEPAGE_URL https://khiops.org)
