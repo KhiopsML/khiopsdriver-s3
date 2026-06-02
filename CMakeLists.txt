@@ -29,6 +29,33 @@ project(
   LANGUAGES CXX
   VERSION ${DRIVER_VERSION})
 
+# CMake policy for MSVC runtime selection
+if(POLICY CMP0091)
+  cmake_policy(SET CMP0091 NEW)
+endif()
+
+# Automatic choice of MSVC runtime to match VCPKG triplet.
+if(MSVC)
+  if(DEFINED VCPKG_TARGET_TRIPLET)
+    string(TOLOWER "${VCPKG_TARGET_TRIPLET}" _vcpkg_triplet_lc)
+    # vcpkg convention:
+    # - triplets *-static      => static CRT (/MT, /MTd)
+    # - triplets sans -static  => dynamic CRT (/MD, /MDd)
+    if(_vcpkg_triplet_lc MATCHES "-static$")
+      set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+      message(STATUS "MSVC runtime: /MT (derived from VCPKG_TARGET_TRIPLET=${VCPKG_TARGET_TRIPLET})")
+    else()
+      set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+      message(STATUS "MSVC runtime: /MD (derived from VCPKG_TARGET_TRIPLET=${VCPKG_TARGET_TRIPLET})")
+    endif()
+  else()
+    message(WARNING
+      "VCPKG_TARGET_TRIPLET undefined; runtime MSVC not forced. "
+      "To avoid LNK2038 conflicts, pass -DVCPKG_TARGET_TRIPLET=..."
+    )
+  endif()
+endif()
+
 # Exclude googletest from the installation and packages
 set(INSTALL_GTEST OFF)
 set(INSTALL_GMOCK OFF)
