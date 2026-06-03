@@ -30,7 +30,6 @@ sdist.exclude = [
 wheel.py-api = "py3"
 cmake.version = "CMakeLists.txt"
 cmake.args = ["--preset", "ninja-rel", "-G", "Ninja"]
-cmake.define.CMAKE_BINARY_DIR = "build/release"
 build-dir = "build/release"
 ninja.make-fallback = false
 

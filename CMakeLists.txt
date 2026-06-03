@@ -156,9 +156,14 @@ if(DEFINED SKBUILD)
     ARCHIVE DESTINATION ${SKBUILD_DATA_DIR}/lib # lib on windows
     RUNTIME DESTINATION ${SKBUILD_SCRIPTS_DIR}) # dll on windows
   if(WIN32)
-    file(GLOB dlls LIST_DIRECTORIES false ${CMAKE_BINARY_DIR}/bin/*.dll)
-    list(REMOVE_ITEM dlls "${CMAKE_BINARY_DIR}/bin/libkhiopsdriver_file_s3.dll")
-    install(FILES ${dlls} DESTINATION ${SKBUILD_SCRIPTS_DIR})
+    install(CODE "
+      file(GLOB dlls LIST_DIRECTORIES false \"${CMAKE_BINARY_DIR}/bin/*.dll\")
+      if(NOT dlls)
+        message(FATAL_ERROR \"Failed to find the DLLs of the dependencies in '${CMAKE_BINARY_DIR}/bin/' .\")
+      endif()
+      list(REMOVE_ITEM dlls \"${CMAKE_BINARY_DIR}/bin/libkhiopsdriver_file_s3.dll\")
+      file(INSTALL DESTINATION ${SKBUILD_SCRIPTS_DIR} TYPE FILE FILES \${dlls})
+    ")
   endif()
 else()
   install(
