@@ -73,11 +73,11 @@ jobs:
 
   test-pkg-from-testpypi:
     name: Test package from Test.PyPI.org on ${{ matrix.os }}
-    # needs: [publish-testpypi]
+    needs: [publish-testpypi]
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [windows-latest]
+        os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
       - uses: actions/setup-python@v6
         with:
@@ -97,8 +97,8 @@ jobs:
       - name: Install Khiops Core
         run: $ENVBIN/pip install --index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple khiops-core
 
-      # - name: Install package
-      #   run: $ENVBIN/pip install -i https://test.pypi.org/simple/ khiops-driver-s3
+      - name: Install driver
+        run: $ENVBIN/pip install -i https://test.pypi.org/simple/ khiops-driver-s3
 
       - name: Check that the driver is detected by Khiops Core (Linux and macOS)
         if: runner.os == 'Linux' || runner.os == 'macOS'
