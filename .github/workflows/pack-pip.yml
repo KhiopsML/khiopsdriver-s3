@@ -97,8 +97,8 @@ jobs:
       - name: Install Khiops Core
         run: $ENVBIN/pip install --index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple khiops-core
 
-      - name: Install package
-        run: $ENVBIN/pip install -i https://test.pypi.org/simple/ khiops-driver-s3
+      # - name: Install package
+      #   run: $ENVBIN/pip install -i https://test.pypi.org/simple/ khiops-driver-s3
 
       - name: Check that the driver is detected by Khiops Core (Linux and macOS)
         if: runner.os == 'Linux' || runner.os == 'macOS'
@@ -111,7 +111,6 @@ jobs:
           $venvRoot = Resolve-Path "venv"
           Write-Host "venv root: $venvRoot"
 
-          # Cherche impi.dll n'importe où dans le venv
           $impiDll = Get-ChildItem -Path $venvRoot -Recurse -Filter "impi.dll" -ErrorAction SilentlyContinue |
                     Select-Object -First 1
 
@@ -123,7 +122,6 @@ jobs:
           $impiDir = $impiDll.DirectoryName
           Write-Host "Found impi.dll in: $impiDir"
 
-          # Ajoute au PATH pour les steps suivants
           "PATH=$impiDir;$env:PATH" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
         
       - name: Check that the driver is detected by Khiops Core (Windows)
@@ -134,7 +132,6 @@ jobs:
           $stdout = Join-Path $env:RUNNER_TEMP "khiops_stdout.txt"
           $stderr = Join-Path $env:RUNNER_TEMP "khiops_stderr.txt"
 
-          # Exécute exactement: khiops.cmd -s
           $p = Start-Process -FilePath $cmd `
             -ArgumentList "-s" `
             -RedirectStandardOutput $stdout `
@@ -142,7 +139,6 @@ jobs:
             -NoNewWindow `
             -PassThru
 
-          # Timeout dur pour éviter les hangs CI
           if (-not $p.WaitForExit(60000)) {
             Stop-Process -Id $p.Id -Force
             Write-Error "Timeout: khiops -s did not finish within 60s"
@@ -152,14 +148,12 @@ jobs:
           $out = Get-Content $stdout -Raw -ErrorAction SilentlyContinue
           $err = Get-Content $stderr -Raw -ErrorAction SilentlyContinue
 
-          # Logs utiles
           Write-Host "----- STDOUT -----"
           $out | Out-Host
           Write-Host "----- STDERR -----"
           $err | Out-Host
           Write-Host "ExitCode=$($p.ExitCode)"
 
-          # Exigence: vérifier 'S3 driver' dans la sortie standard
           if ($out -notmatch 'S3 driver') {
             Write-Error "Pattern 'S3 driver' not found in stdout"
             exit 1
