@@ -108,17 +108,20 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          Write-Host "PWD: $(Get-Location)"
-          Write-Host "ENVBIN=$env:ENVBIN"
-          Test-Path "$env:ENVBIN\khiops.cmd" | ForEach-Object { "khiops.cmd exists: $_" }
-          Get-ChildItem "$env:ENVBIN" | Select-Object Name | Out-Host
+          $exe = "$env:ENVBIN\khiops.cmd"
 
-          & "$env:ENVBIN\python.exe" --version
-          & "$env:ENVBIN\pip.exe" show khiops-core
-          & "$env:ENVBIN\pip.exe" show khiops-driver-s3
+          # Lance khiops avec stdin fermé (entrée vide) et capture stdout/stderr
+          $out = '' | & $exe -s 2>&1
+          $code = $LASTEXITCODE
 
-          & "$env:ENVBIN\khiops.cmd" -s 2>&1 | Out-Host
-          Write-Host "LASTEXITCODE=$LASTEXITCODE"
+          $out | Out-Host
+          Write-Host "Exit code: $code"
+
+          # Adapte ici la règle de succès (suivant ce que -s affiche réellement)
+          if ($out -notmatch 'S3 driver') {
+            Write-Error "Pattern 'S3 driver' not found"
+            exit 1
+          }
 
   ##### ENABLE THE FOLLOWING WHEN READY TO PUBLISH TO THE OFFICIAL PYPI.ORG REPOSITORY
   # publish-pypi:
