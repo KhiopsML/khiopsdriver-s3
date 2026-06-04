@@ -108,18 +108,38 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $exe = "$env:ENVBIN\khiops.cmd"
+          $cmd = "$env:ENVBIN\khiops.cmd"
+          $stdout = Join-Path $env:RUNNER_TEMP "khiops_stdout.txt"
+          $stderr = Join-Path $env:RUNNER_TEMP "khiops_stderr.txt"
 
-          # Lance khiops avec stdin fermé (entrée vide) et capture stdout/stderr
-          $out = '' | & $exe -s 2>&1
-          $code = $LASTEXITCODE
+          # Exécute exactement: khiops.cmd -s
+          $p = Start-Process -FilePath $cmd `
+            -ArgumentList "-s" `
+            -RedirectStandardOutput $stdout `
+            -RedirectStandardError $stderr `
+            -NoNewWindow `
+            -PassThru
 
+          # Timeout dur pour éviter les hangs CI
+          if (-not $p.WaitForExit(60000)) {
+            Stop-Process -Id $p.Id -Force
+            Write-Error "Timeout: khiops -s did not finish within 60s"
+            exit 1
+          }
+
+          $out = Get-Content $stdout -Raw -ErrorAction SilentlyContinue
+          $err = Get-Content $stderr -Raw -ErrorAction SilentlyContinue
+
+          # Logs utiles
+          Write-Host "----- STDOUT -----"
           $out | Out-Host
-          Write-Host "Exit code: $code"
+          Write-Host "----- STDERR -----"
+          $err | Out-Host
+          Write-Host "ExitCode=$($p.ExitCode)"
 
-          # Adapte ici la règle de succès (suivant ce que -s affiche réellement)
+          # Exigence: vérifier 'S3 driver' dans la sortie standard
           if ($out -notmatch 'S3 driver') {
-            Write-Error "Pattern 'S3 driver' not found"
+            Write-Error "Pattern 'S3 driver' not found in stdout"
             exit 1
           }
 
