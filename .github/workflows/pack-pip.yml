@@ -137,6 +137,15 @@ jobs:
             }
           }
 
+      - name: Try launching MODL directly (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $exe = Resolve-Path "$env:ENVBIN\MODL.exe"
+          & $exe -? 2>&1 | Out-Host
+          Write-Host "LASTEXITCODE=$LASTEXITCODE"
+
+
         
       - name: Check that the driver is detected by Khiops Core (Windows)
         if: runner.os == 'Windows'
