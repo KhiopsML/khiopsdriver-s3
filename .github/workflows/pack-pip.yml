@@ -102,7 +102,7 @@ jobs:
         run: $ENVBIN/pip install -i https://test.pypi.org/simple/ khiops-driver-s3
 
       - name: Check that the driver is detected by Khiops Core
-        run: $ENVBIN/khiops.cmd -s | grep 'S3 driver'
+        run: cmd.exe /c "$ENVBIN\\khiops.cmd -s" | grep 'S3 driver'
 
   ##### ENABLE THE FOLLOWING WHEN READY TO PUBLISH TO THE OFFICIAL PYPI.ORG REPOSITORY
   # publish-pypi:
