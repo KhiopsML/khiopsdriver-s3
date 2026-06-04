@@ -103,6 +103,12 @@ jobs:
       - name: Check that the driver is detected by Khiops Core (Linux and macOS)
         if: runner.os == 'Linux' || runner.os == 'macOS'
         run: $ENVBIN/khiops -s | grep 'S3 driver'
+
+      - name: Install Microsoft Visual C++ Redistributable (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          choco install vcredist140 -y --no-progress
         
       - name: Check that the driver is detected by Khiops Core (Windows)
         if: runner.os == 'Windows'
