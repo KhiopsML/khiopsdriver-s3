@@ -108,21 +108,23 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $impi = & "$env:ENVBIN\python.exe" -c "import os, impi_rt; print(os.path.dirname(impi_rt.__file__))"
-          Write-Host "impi_rt dir: $impi"
+          $venvRoot = Resolve-Path "venv"
+          Write-Host "venv root: $venvRoot"
 
-          # Cherche impi.dll dans le package
-          $impiDll = Get-ChildItem -Path $impi -Recurse -Filter "impi.dll" | Select-Object -First 1
+          # Cherche impi.dll n'importe où dans le venv
+          $impiDll = Get-ChildItem -Path $venvRoot -Recurse -Filter "impi.dll" -ErrorAction SilentlyContinue |
+                    Select-Object -First 1
+
           if (-not $impiDll) {
-            Write-Error "impi.dll not found under impi_rt package"
+            Write-Error "impi.dll not found in venv"
             exit 1
           }
 
           $impiDir = $impiDll.DirectoryName
           Write-Host "Found impi.dll in: $impiDir"
 
-          # Rend dispo pour les steps suivants
-          Add-Content -Path $env:GITHUB_ENV -Value "PATH=$impiDir;$env:PATH"
+          # Ajoute au PATH pour les steps suivants
+          "PATH=$impiDir;$env:PATH" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
         
       - name: Check that the driver is detected by Khiops Core (Windows)
         if: runner.os == 'Windows'
