@@ -83,15 +83,26 @@ jobs:
         with:
           python-version: 3.9
 
+      - name: Create a virtual environment
+        run: python -m venv venv
+
+      - name: Create an environment variable pointing at the directory containing the executables (Linux and macOS)
+        if: runner.os == 'Linux' || runner.os == 'macOS'
+        run: echo "ENVBIN=venv/bin" >> "$GITHUB_ENV"
+
+      - name: Create an environment variable pointing at the directory containing the executables (Windows)
+        if: runner.os == 'Windows'
+        run: echo "ENVBIN=venv/Scripts" >> "$GITHUB_ENV"
+
       - name: Install Khiops Core
-        ##### CHANGE PKG REPO TO OFFICIAL PYPI.ORG WHEN KHIOPS WILL BE OFFICIALLY AVAILABLE ON THAT REPO
-        run: python -m pip install --index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple khiops-core
-      
+        if: runner.os == 'Linux' || runner.os == 'macOS'
+        run: $ENVBIN/pip install --index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple khiops-core
+
       - name: Install package
-        run: python -m pip install -i https://test.pypi.org/simple/ khiops-driver-s3
+        run: $ENVBIN/pip install -i https://test.pypi.org/simple/ khiops-driver-s3
 
       - name: Check that the driver is detected by Khiops Core
-        run: python -m khiops -s | grep 'S3 driver'
+        run: $ENVBIN/khiops -s | grep 'S3 driver'
 
   ##### ENABLE THE FOLLOWING WHEN READY TO PUBLISH TO THE OFFICIAL PYPI.ORG REPOSITORY
   # publish-pypi:
