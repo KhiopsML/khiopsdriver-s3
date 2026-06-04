@@ -104,48 +104,25 @@ jobs:
         if: runner.os == 'Linux' || runner.os == 'macOS'
         run: $ENVBIN/khiops -s | grep 'S3 driver'
 
-      - uses: ilammy/msvc-dev-cmd@v1
-
-      - name: Diagnose missing DLLs with dumpbin (Windows)
+      - name: Add Intel MPI runtime to PATH (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $bin = Resolve-Path "$env:ENVBIN"
-          Write-Host "ENVBIN = $bin"
+          $impi = & "$env:ENVBIN\python.exe" -c "import os, impi_rt; print(os.path.dirname(impi_rt.__file__))"
+          Write-Host "impi_rt dir: $impi"
 
-          $targets = @(
-            "$bin\MODL.exe",
-            "$bin\khiops.cmd",
-            "$bin\libkhiopsdriver_file_s3.dll",
-            "$bin\aws-cpp-sdk-core.dll",
-            "$bin\aws-cpp-sdk-s3.dll"
-          )
-
-          foreach ($t in $targets) {
-            if (Test-Path $t) {
-              Write-Host ""
-              Write-Host "===== DEPENDENTS: $t ====="
-              if ($t -like "*.cmd") {
-                Write-Host "(skip dumpbin on .cmd)"
-              }
-              else {
-                dumpbin /DEPENDENTS $t | Out-Host
-              }
-            }
-            else {
-              Write-Host "Missing file: $t"
-            }
+          # Cherche impi.dll dans le package
+          $impiDll = Get-ChildItem -Path $impi -Recurse -Filter "impi.dll" | Select-Object -First 1
+          if (-not $impiDll) {
+            Write-Error "impi.dll not found under impi_rt package"
+            exit 1
           }
 
-      - name: Try launching MODL directly (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          $exe = Resolve-Path "$env:ENVBIN\MODL.exe"
-          & $exe -? 2>&1 | Out-Host
-          Write-Host "LASTEXITCODE=$LASTEXITCODE"
+          $impiDir = $impiDll.DirectoryName
+          Write-Host "Found impi.dll in: $impiDir"
 
-
+          # Rend dispo pour les steps suivants
+          Add-Content -Path $env:GITHUB_ENV -Value "PATH=$impiDir;$env:PATH"
         
       - name: Check that the driver is detected by Khiops Core (Windows)
         if: runner.os == 'Windows'
