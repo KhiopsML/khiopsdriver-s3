@@ -106,7 +106,8 @@ jobs:
         
       - name: Check that the driver is detected by Khiops Core (Windows)
         if: runner.os == 'Windows'
-        run: cmd.exe /c $ENVBIN\\khiops.cmd -s
+        shell: pwsh
+        run: if ((& "$env:ENVBIN\\khiops.cmd" -s) -notmatch "S3 driver") { exit 1 }
 
   ##### ENABLE THE FOLLOWING WHEN READY TO PUBLISH TO THE OFFICIAL PYPI.ORG REPOSITORY
   # publish-pypi:
