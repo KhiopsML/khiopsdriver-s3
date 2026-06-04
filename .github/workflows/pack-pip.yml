@@ -104,11 +104,39 @@ jobs:
         if: runner.os == 'Linux' || runner.os == 'macOS'
         run: $ENVBIN/khiops -s | grep 'S3 driver'
 
-      - name: Install Microsoft Visual C++ Redistributable (Windows)
+      - uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Diagnose missing DLLs with dumpbin (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          choco install vcredist140 -y --no-progress
+          $bin = Resolve-Path "$env:ENVBIN"
+          Write-Host "ENVBIN = $bin"
+
+          $targets = @(
+            "$bin\MODL.exe",
+            "$bin\khiops.cmd",
+            "$bin\libkhiopsdriver_file_s3.dll",
+            "$bin\aws-cpp-sdk-core.dll",
+            "$bin\aws-cpp-sdk-s3.dll"
+          )
+
+          foreach ($t in $targets) {
+            if (Test-Path $t) {
+              Write-Host ""
+              Write-Host "===== DEPENDENTS: $t ====="
+              if ($t -like "*.cmd") {
+                Write-Host "(skip dumpbin on .cmd)"
+              }
+              else {
+                dumpbin /DEPENDENTS $t | Out-Host
+              }
+            }
+            else {
+              Write-Host "Missing file: $t"
+            }
+          }
+
         
       - name: Check that the driver is detected by Khiops Core (Windows)
         if: runner.os == 'Windows'
