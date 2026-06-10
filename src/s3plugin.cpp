@@ -662,7 +662,7 @@ int driver_connect() {
     configCredentials = Aws::Auth::AWSCredentials(s3accessKey, s3secretKey);
   }
 
-  clientConfig.caFile = "/somewhere/this-is-a-certificate";
+  if(FindCertificate(&clientConfig.caFile) != 0) return kOtherFailure;
 
   client = Aws::MakeUnique<Aws::S3::S3Client>(
       KHIOPS_S3, configCredentials,
