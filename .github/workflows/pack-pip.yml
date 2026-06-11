@@ -153,7 +153,7 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $cmd = (Get-Command khiops.cmd -ErrorAction Stop).Source
+          $cmd = (Get-Command khiops -ErrorAction Stop).Source
           $stdout = Join-Path $env:RUNNER_TEMP "khiops_stdout.txt"
           $stderr = Join-Path $env:RUNNER_TEMP "khiops_stderr.txt"
 
@@ -200,7 +200,7 @@ jobs:
           S3_DRIVER_LOGFILE: /dev/stderr
         run: |
           cd test/LearningTest/TestKhiops/Standard/Iris/
-          khiops -b -i test.prm -e results/err.txt
+          khiops.cmd -b -i test.prm -e results/err.txt
           cd -
           touch test/LearningTest/TestKhiops/Standard/Iris/results/time.log
           echo "Check test results"
