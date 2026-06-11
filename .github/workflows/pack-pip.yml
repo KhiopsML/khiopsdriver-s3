@@ -200,7 +200,11 @@ jobs:
           S3_DRIVER_LOGFILE: /dev/stderr
         run: |
           cd test/LearningTest/TestKhiops/Standard/Iris/
-          khiops.cmd -b -i test.prm -e results/err.txt
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            khiops.cmd -b -i test.prm -e results/err.txt
+          else
+            khiops -b -i test.prm -e results/err.txt
+          fi
           cd -
           touch test/LearningTest/TestKhiops/Standard/Iris/results/time.log
           echo "Check test results"
