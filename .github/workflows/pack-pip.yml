@@ -96,11 +96,11 @@ jobs:
 
       - name: Create an environment variable pointing at the directory containing the executables (Linux and macOS)
         if: runner.os == 'Linux' || runner.os == 'macOS'
-        run: echo "ENVBIN=venv/bin" >> "$GITHUB_ENV"
+        run: echo "ENVBIN=$(pwd)/venv/bin" >> "$GITHUB_ENV"
 
       - name: Create an environment variable pointing at the directory containing the executables (Windows)
         if: runner.os == 'Windows'
-        run: echo "ENVBIN=venv/Scripts" >> "$GITHUB_ENV"
+        run: echo "ENVBIN=$(pwd)/venv/Scripts" >> "$GITHUB_ENV"
 
       - name: Install Khiops Core
         run: $ENVBIN/pip install --index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple khiops-core
