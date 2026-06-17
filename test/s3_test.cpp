@@ -30,12 +30,12 @@ void TestPatternMatching(const std::vector<std::string> &must_match,
                          const std::string &pattern) {
   for (auto &s : must_match) {
     ASSERT_TRUE(
-        khiops_driver_common::util::glob::GitignoreGlobMatch(s, pattern));
+        khiops_driver_common::GitignoreGlobMatch(s, pattern));
   }
 
   for (auto &s : no_match) {
     ASSERT_FALSE(
-        khiops_driver_common::util::glob::GitignoreGlobMatch(s, pattern));
+        khiops_driver_common::GitignoreGlobMatch(s, pattern));
   }
 }
 
@@ -242,13 +242,15 @@ kSuccess); cleanup_bad_credentials();
 
 TEST(S3DriverTest, RmDir) {
   ASSERT_EQ(driver_connect(), kOtherSuccess);
-  ASSERT_EQ(driver_rmdir("dummy"), kOtherSuccess);
+  // This "URL" does not end with a "/" and thus is not a valid directory URL.
+  ASSERT_EQ(driver_rmdir("dummy"), kOtherFailure);
   ASSERT_EQ(driver_disconnect(), kOtherSuccess);
 }
 
 TEST(S3DriverTest, mkDir) {
   ASSERT_EQ(driver_connect(), kOtherSuccess);
-  ASSERT_EQ(driver_mkdir("dummy"), kOtherSuccess);
+  // This "URL" does not end with a "/" and thus is not a valid directory URL.
+  ASSERT_EQ(driver_mkdir("dummy"), kOtherFailure);
   ASSERT_EQ(driver_disconnect(), kOtherSuccess);
 }
 
@@ -364,9 +366,11 @@ protected:
     auto mock_client_alias = Aws::UniquePtr<S3Client>(concrete_mock);
     mock_client_ = dynamic_cast<MockS3Client *>(concrete_mock);
     test_setClient(std::move(mock_client_alias));
+    ASSERT_EQ(driver_connect(), kOtherSuccess);
   }
 
   void TearDown() override {
+    ASSERT_EQ(driver_disconnect(), kOtherSuccess);
     test_cleanupClient();
 
     // Cleanup AWS API
@@ -482,7 +486,7 @@ public:
 #define GETOBJECT_CALL(body) CALL_ONCE(MakeGetObjectOutcome((body)))
 
 TEST_F(S3DriverTestFixture, FileExists_InvalidURIs) {
-  CheckInvalidURIs(driver_fileExists, kFalse);
+  CheckInvalidURIs(driver_fileExists, kFailure);
 }
 
 TEST_F(S3DriverTestFixture, FileExists_NoGlobbing) {
@@ -491,14 +495,14 @@ TEST_F(S3DriverTestFixture, FileExists_NoGlobbing) {
   HEADOBJECT_FAILURE; // no file found or server error
 
   ASSERT_EQ(driver_fileExists("s3://mock_bucket/mock_name"), kTrue);
-  ASSERT_EQ(driver_fileExists("s3://mock_bucket/no_match_or_error"), kFalse);
+  ASSERT_EQ(driver_fileExists("s3://mock_bucket/no_match_or_error"), kFailure);  // Cannot get file information.
 }
 
 TEST_F(S3DriverTestFixture, FileExists_Globbing_ListObjectError) {
   EXPECT_LISTOBJECT
   LISTOBJECT_FAILURE;
 
-  ASSERT_EQ(driver_fileExists("s3://mock_bucket/**/pattern"), kFalse);
+  ASSERT_EQ(driver_fileExists("s3://mock_bucket/**/pattern"), kFailure);  // Error while filtering object list.
 }
 
 #define SIMPLE_LIST_CALL                                                       \
