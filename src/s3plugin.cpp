@@ -546,12 +546,17 @@ const char *driver_getScheme() {
 }
 
 int driver_isReadOnly() {
-  if (Check_driver_isReadOnly()) return kFailure;
+  if (Check_driver_isReadOnly()) return kFalse;
   return kFalse;
 }
 
 int driver_connect() {
   if (Check_driver_connect()) return kOtherFailure;
+
+  if (bIsConnected) {
+    GetLogger()->debug("Already connected!");
+    return kOtherSuccess;
+  }
 
   if (client) {
     bIsConnected = true;
@@ -685,6 +690,10 @@ int driver_connect() {
 
 int driver_disconnect() {
   if (Check_driver_disconnect()) return kOtherFailure;
+  if (bIsConnected) {
+    GetLogger()->debug("Already connected!");
+    return kOtherSuccess;
+  }
   if (client) {
     // tie up loose ends
     Aws::Vector<Aws::S3::Model::AbortMultipartUploadOutcome> failures;
@@ -729,7 +738,7 @@ int driver_disconnect() {
 }
 
 int driver_isConnected() {
-  if (Check_driver_isConnected()) return kFailure;
+  if (Check_driver_isConnected()) return kFalse;
   return bIsConnected;
 }
 
@@ -740,7 +749,7 @@ long long int driver_getSystemPreferredBufferSize() {
 }
 
 int driver_exist(const char *filename) {
-  if (Check_driver_exist(filename)) return kFailure;
+  if (Check_driver_exist(filename)) return kFalse;
 
   const size_t size = std::strlen(filename);
   if (0 == size) {
@@ -761,12 +770,12 @@ int driver_exist(const char *filename) {
 }
 
 int driver_fileExists(const char *sFilePathName) {
-  if (Check_driver_fileExists(sFilePathName)) return kFailure;
+  if (Check_driver_fileExists(sFilePathName)) return kFalse;
 
   ParseUriResult names;
   if (ParseS3Uri(&names, sFilePathName)) {
     GetLogger()->error(ERR_URL_PARSING);
-    return kFailure;
+    return kFalse;
   }
 
   size_t pattern_1st_sp_char_pos = 0;
@@ -780,7 +789,7 @@ int driver_fileExists(const char *sFilePathName) {
     if (!head_object_outcome.IsSuccess()) {
       GetLogger()->error("Failed retrieving file info in fileExists: {}",
                          head_object_outcome.GetError().GetMessage());
-      return kFailure;
+      return kFalse;
     }
 
     return kTrue;
@@ -791,14 +800,14 @@ int driver_fileExists(const char *sFilePathName) {
   if (FilterList(&filteredList, names.bucket_, names.object_,
                  pattern_1st_sp_char_pos)) {
     GetLogger()->error("Error while filtering object list");
-    return kFailure;
+    return kFalse;
   }
 
   return filteredList.empty() ? kFalse : kTrue;
 }
 
 int driver_dirExists(const char *sFilePathName) {
-  if (Check_driver_dirExists(sFilePathName)) return kFailure;
+  if (Check_driver_dirExists(sFilePathName)) return kFalse;
   return kTrue;
 }
 
@@ -1610,12 +1619,12 @@ int driver_fflush(void *stream) {
 }
 
 int driver_remove(const char *filename) {
-  if (Check_driver_remove(filename)) return kOtherFailure;
+  if (Check_driver_remove(filename)) return kFalse;
 
   ParseUriResult names;
   if (ParseS3Uri(&names, (filename))) {
     GetLogger()->error(ERR_URL_PARSING);
-    return (((kOtherFailure)));
+    return (((kFalse)));
   }
 
   Aws::S3::Model::DeleteObjectRequest request;
