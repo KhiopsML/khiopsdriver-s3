@@ -691,7 +691,7 @@ int driver_connect() {
 int driver_disconnect() {
   if (Check_driver_disconnect()) return kOtherFailure;
   if (bIsConnected) {
-    GetLogger()->debug("Already connected!");
+    GetLogger()->debug("Already disconnected!");
     return kOtherSuccess;
   }
   if (client) {
