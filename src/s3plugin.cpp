@@ -19,6 +19,7 @@
 #include <aws/s3/S3Client.h>
 #include <aws/s3/model/AbortMultipartUploadRequest.h>
 #include <aws/s3/model/CompleteMultipartUploadRequest.h>
+#include <aws/s3/model/CopyObjectRequest.h>
 #include <aws/s3/model/CreateMultipartUploadRequest.h>
 #include <aws/s3/model/DeleteObjectRequest.h>
 #include <aws/s3/model/GetObjectRequest.h>
@@ -34,6 +35,7 @@
 #include <cstdlib>
 #include <fstream>
 #include <iostream>
+#include <iomanip>
 #include <limits>
 #include <memory>
 #include <sstream>
@@ -2446,6 +2448,179 @@ int driver_concat(const char *destfilename, const char **sourcefilenames,
   }
 
   return delete_ok ? kOtherSuccess : kOtherFailure;
+}
+
+int driver_composeMultifile(const char *sDestFilePathName,
+                            const char **sSourceFilePathNames,
+                            size_t nSourceFileCount) {
+  if (kFalse == bIsConnected) {
+    GetLogger()->error(ERR_NOT_CONNECTED);
+    return kOtherFailure;
+  }
+
+  if (!sDestFilePathName || !sSourceFilePathNames) {
+    GetLogger()->error(
+        "Error passing null pointers as arguments to driver_composeMultifile");
+    return kOtherFailure;
+  }
+
+  if (nSourceFileCount < 1) {
+    GetLogger()->error(
+        "Error passing invalid number of files to driver_composeMultifile");
+    return kOtherFailure;
+  }
+
+  GetLogger()->debug("driver_composeMultifile {} with {} sources:",
+                     sDestFilePathName, nSourceFileCount);
+
+  // ---- Local helpers (autonomous implementation) --------------------------
+
+  // Validate "relative path": no URI scheme, no leading slash
+  auto is_relative_path = [](const char *p) -> bool {
+    if (p == NULL) {
+      return false;
+    }
+    const std::string s(p);
+    if (s.empty()) {
+      return false;
+    }
+    if (s.find("://") != std::string::npos) {
+      return false;
+    }
+    if (!s.empty() && s[0] == '/') {
+      return false;
+    }
+    return true;
+  };
+
+  // Parse globbing pattern "prefix*suffix"
+  // Constraints:
+  // - exactly one '*'
+  // - prefix not empty
+  // - prefix last char must not be digit
+  // - suffix first char (if any) must not be digit
+  auto parse_globbing_pattern = [](const std::string &pattern,
+                                   std::string *prefix,
+                                   std::string *suffix) -> bool {
+    const std::size_t star_pos = pattern.find('*');
+    if (star_pos == std::string::npos) {
+      return false;
+    }
+    if (pattern.find('*', star_pos + 1) != std::string::npos) {
+      return false;
+    }
+
+    *prefix = pattern.substr(0, star_pos);
+    *suffix = pattern.substr(star_pos + 1);
+
+    if (prefix->empty()) {
+      return false;
+    }
+
+    {
+      const unsigned char c = static_cast<unsigned char>((*prefix)[prefix->size() - 1]);
+      if (std::isdigit(c)) {
+        return false;
+      }
+    }
+
+    if (!suffix->empty()) {
+      const unsigned char c = static_cast<unsigned char>((*suffix)[0]);
+      if (std::isdigit(c)) {
+        return false;
+      }
+    }
+
+    return true;
+  };
+
+  // 12-digit zero-padded sequence number
+  auto generate_sequence_number = [](size_t i) -> std::string {
+    std::ostringstream os;
+    os << std::setfill('0') << std::setw(12) << i;
+    return os.str();
+  };
+
+  // -------------------------------------------------------------------------
+
+  // Parse and validate destination pattern
+  std::string prefix;
+  std::string suffix;
+  if (!parse_globbing_pattern(std::string(sDestFilePathName), &prefix, &suffix)) {
+    GetLogger()->error("Invalid globbing pattern");
+    return kOtherFailure;
+  }
+
+  // Destination prefix must be a valid S3 URI
+  ParseUriResult parsed_dest;
+  if (ParseS3Uri(&parsed_dest, prefix.c_str())) {
+    GetLogger()->error("Error parsing destination pattern");
+    return kOtherFailure;
+  }
+
+  const Aws::String &dest_bucket = parsed_dest.bucket_;
+  const Aws::String &base_object = parsed_dest.object_;
+
+  // Validate source paths and log them
+  for (size_t i = 0; i < nSourceFileCount; ++i) {
+    if (!is_relative_path(sSourceFilePathNames[i])) {
+      std::ostringstream os;
+      os << "Source file path must be relative (no s3:// allowed): "
+         << (sSourceFilePathNames[i] ? sSourceFilePathNames[i] : "<null>");
+      GetLogger()->error(os.str());
+      return kOtherFailure;
+    }
+    GetLogger()->debug("- {}", sSourceFilePathNames[i]);
+  }
+
+  bool failure_detected = false;
+
+  // Copy + delete for each source
+  for (size_t i = 0; i < nSourceFileCount; ++i) {
+    const Aws::String source_object = sSourceFilePathNames[i];
+
+    const std::string seq = generate_sequence_number(i);
+
+    std::ostringstream name_os;
+    name_os << base_object.c_str() << seq << suffix;
+    const Aws::String new_object_name = name_os.str().c_str();
+
+    GetLogger()->debug("Renaming {} to {}", source_object.c_str(),
+                       new_object_name.c_str());
+
+    // S3 CopyObject source format: "bucket/key"
+    Aws::String copy_source = dest_bucket;
+    copy_source += "/";
+    copy_source += source_object;
+
+    Aws::S3::Model::CopyObjectRequest copy_req;
+    copy_req.SetBucket(dest_bucket);
+    copy_req.SetKey(new_object_name);
+    copy_req.SetCopySource(copy_source);
+
+    Aws::S3::Model::CopyObjectOutcome copy_outcome = client->CopyObject(copy_req);
+    if (!copy_outcome.IsSuccess()) {
+      GetLogger()->error("Error renaming '{}' to '{}': {}",
+                         source_object.c_str(), new_object_name.c_str(),
+                         copy_outcome.GetError().GetMessage());
+      failure_detected = true;
+      continue;
+    }
+
+    Aws::S3::Model::DeleteObjectRequest del_req;
+    del_req.SetBucket(dest_bucket);
+    del_req.SetKey(source_object);
+
+    Aws::S3::Model::DeleteObjectOutcome del_outcome = client->DeleteObject(del_req);
+    if (!del_outcome.IsSuccess()) {
+      GetLogger()->error("Error deleting original file '{}': {}",
+                         source_object.c_str(),
+                         del_outcome.GetError().GetMessage());
+      failure_detected = true;
+    }
+  }
+
+  return failure_detected ? kOtherFailure : kOtherSuccess;
 }
 
 bool test_compareFiles(const char *local_file_path_str,
