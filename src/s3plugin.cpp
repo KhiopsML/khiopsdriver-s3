@@ -8,9 +8,6 @@
 #include "khiops_driver_common/contrib.hpp"
 #include "khiops_driver_common/logging.hpp"
 #include "khiops_driver_common/util.hpp"
-#include "khiops_driver_common/filestream_management.hpp"
-#include "khiops_driver_common/globalstate.hpp"
-#include "khiops_driver_common/userfunc_checks.hpp"
 #include "contrib/ini.h"
 
 #include "khiops_driver_common/logging.hpp"
@@ -66,6 +63,9 @@ static Aws::String globalBucketName = "";
 static HandleContainer<ReaderPtr> active_reader_handles;
 static HandleContainer<WriterPtr> active_writer_handles;
 
+// Error strings
+static const char *ERR_NOT_CONNECTED = "Error: Driver is not connected.";
+static const char *ERR_NULL_ARG = "Error passing null pointer to {}";
 static const char *ERR_URL_PARSING = "Error parsing URL";
 
 // test utilities
@@ -267,11 +267,16 @@ int ReadBytesInFile(long long *size, MultiPartFile &multifile,
   const tOffset total_size = cumul_sizes.back();
 
   if (offset >= total_size) {
+    if (CheckEtagOnly(multifile, cumul_sizes.size() - 1)) {
+      GetLogger()->error("The file has been updated while reading it.");
+      return -1;
+    }
+
     if (to_read == 0) {
       *size = 0LL;
       return 0;
     }
-    
+
     GetLogger()->error("Cannot read after end of file.");
     return -1;
   }
@@ -530,37 +535,17 @@ MakeCompleteMultipartUploadRequest(Writer &writer) {
 
 // Implementation of driver functions
 
-const char *driver_getDriverName() {
-  if (Check_driver_getDriverName()) return nullptr;
-  return "S3 driver";
-}
+const char *driver_getDriverName() { return "S3 driver"; }
 
-const char *driver_getVersion() {
-  if (Check_driver_getVersion()) return nullptr;
-  return version;
-}
+const char *driver_getVersion() { return version; }
 
-const char *driver_getScheme() {
-  if (Check_driver_getScheme()) return nullptr;
-  return "s3";
-}
+const char *driver_getScheme() { return "s3"; }
 
-int driver_isReadOnly() {
-  if (Check_driver_isReadOnly()) return kFalse;
-  return kFalse;
-}
+int driver_isReadOnly() { return kFalse; }
 
 int driver_connect() {
-  if (Check_driver_connect()) return kOtherFailure;
-
-  if (bIsConnected) {
-    GetLogger()->debug("Already connected!");
-    return kOtherSuccess;
-  }
-
-  if (client) {
-    bIsConnected = true;
-    GetState()->is_driver_initialized = true;
+  if (kTrue == bIsConnected) {
+    GetLogger()->debug("Driver is already connected");
     return kOtherSuccess;
   }
 
@@ -568,6 +553,8 @@ int driver_connect() {
     Aws::IFStream ifile(name);
     return (ifile.is_open());
   };
+
+  GetLogger()->debug("Connect");
 
   // Configuration: we honor both standard AWS config files and environment
   // variables If both configuration files and environment variables are set
@@ -684,16 +671,10 @@ int driver_connect() {
       Aws::MakeShared<Aws::S3::S3EndpointProvider>(KHIOPS_S3), clientConfig);
 
   bIsConnected = true;
-  GetState()->is_driver_initialized = true;
   return kOtherSuccess;
 }
 
 int driver_disconnect() {
-  if (Check_driver_disconnect()) return kOtherFailure;
-  if (bIsConnected) {
-    GetLogger()->debug("Already disconnected!");
-    return kOtherSuccess;
-  }
   if (client) {
     // tie up loose ends
     Aws::Vector<Aws::S3::Model::AbortMultipartUploadOutcome> failures;
@@ -733,29 +714,35 @@ int driver_disconnect() {
   ShutdownAPI(options);
 
   bIsConnected = kFalse;
-  GetState()->is_driver_initialized = false;
+
   return kOtherSuccess;
 }
 
-int driver_isConnected() {
-  if (Check_driver_isConnected()) return kFalse;
-  return bIsConnected;
-}
+int driver_isConnected() { return bIsConnected; }
 
 long long int driver_getSystemPreferredBufferSize() {
-  if (Check_driver_getSystemPreferredBufferSize()) return kFailure;
   constexpr long long buff_size = 4L * 1024L * 1024L;
   return buff_size; // 4 Mo
 }
 
 int driver_exist(const char *filename) {
-  if (Check_driver_exist(filename)) return kFalse;
+  if (kFalse == bIsConnected) {
+    GetLogger()->error(ERR_NOT_CONNECTED);
+    return (kFalse);
+  };
+
+  if (!filename) {
+    GetLogger()->error(ERR_NULL_ARG, __func__);
+    return kFalse;
+  }
 
   const size_t size = std::strlen(filename);
   if (0 == size) {
     GetLogger()->error("Error passing an empty name to driver_exist");
     return kFalse;
   }
+
+  GetLogger()->debug("exist {}", filename);
 
   // const std::string file_uri = filename;
   // GetLogger()->debug("exist file_uri {}", file_uri);
@@ -770,7 +757,17 @@ int driver_exist(const char *filename) {
 }
 
 int driver_fileExists(const char *sFilePathName) {
-  if (Check_driver_fileExists(sFilePathName)) return kFalse;
+  if (kFalse == bIsConnected) {
+    GetLogger()->error(ERR_NOT_CONNECTED);
+    return (kFalse);
+  };
+
+  if (!(sFilePathName)) {
+    GetLogger()->error(ERR_NULL_ARG, __func__);
+    return (kFalse);
+  };
+
+  GetLogger()->debug("fileExist {}", sFilePathName);
 
   ParseUriResult names;
   if (ParseS3Uri(&names, sFilePathName)) {
@@ -807,7 +804,18 @@ int driver_fileExists(const char *sFilePathName) {
 }
 
 int driver_dirExists(const char *sFilePathName) {
-  if (Check_driver_dirExists(sFilePathName)) return kFalse;
+  if (kFalse == bIsConnected) {
+    GetLogger()->error(ERR_NOT_CONNECTED);
+    return (kFalse);
+  };
+
+  if (!(sFilePathName)) {
+    GetLogger()->error(ERR_NULL_ARG, __func__);
+    return (kFalse);
+  };
+
+  GetLogger()->debug("dirExist {}", sFilePathName);
+
   return kTrue;
 }
 
@@ -1013,7 +1021,17 @@ int getFileSize(long long *size, const Aws::String &bucket_name,
 }
 
 long long int driver_getFileSize(const char *filename) {
-  if (Check_driver_getFileSize(filename)) return kFailure;
+  if (kFalse == bIsConnected) {
+    GetLogger()->error(ERR_NOT_CONNECTED);
+    return (kFailure);
+  };
+
+  if (!(filename)) {
+    GetLogger()->error(ERR_NULL_ARG, __func__);
+    return (kFailure);
+  };
+
+  GetLogger()->debug("getFileSize {}", filename);
 
   ParseUriResult names;
   if (ParseS3Uri(&names, filename)) {
@@ -1270,7 +1288,17 @@ int InitiateAppend(Writer &writer, size_t source_bytes_to_copy) {
 }
 
 void *driver_fopen(const char *filename, char mode) {
-  if (Check_driver_fopen(filename, mode)) return nullptr;
+  if (kFalse == bIsConnected) {
+    GetLogger()->error(ERR_NOT_CONNECTED);
+    return (nullptr);
+  };
+
+  if (!(filename)) {
+    GetLogger()->error(ERR_NULL_ARG, __func__);
+    return (nullptr);
+  };
+
+  GetLogger()->debug("fopen {} {}", filename, mode);
 
   ParseUriResult names;
   if (ParseS3Uri(&names, (filename))) {
@@ -1286,7 +1314,6 @@ void *driver_fopen(const char *filename, char mode) {
       GetLogger()->error("Error while opening reader stream");
       return (nullptr);
     }
-    if (RegisterFileStream(&GetState()->open_file_streams, static_cast<void *>(readerPtr), FileStreamMode::READ)) return nullptr;
     return readerPtr;
   case 'w':
     Writer *writerPtr;
@@ -1295,7 +1322,6 @@ void *driver_fopen(const char *filename, char mode) {
       GetLogger()->error("Error while opening writer stream");
       return (nullptr);
     }
-    if (RegisterFileStream(&GetState()->open_file_streams, static_cast<void *>(writerPtr), FileStreamMode::WRITE)) return nullptr;
     return writerPtr;
   case 'a': {
     // identify the concrete target of the append
@@ -1334,7 +1360,6 @@ void *driver_fopen(const char *filename, char mode) {
           GetLogger()->error("Error while opening writer stream");
           return (nullptr);
         }
-        if (RegisterFileStream(&GetState()->open_file_streams, static_cast<void *>(writerPtr), FileStreamMode::APPEND)) return nullptr;
         return writerPtr;
       } else {
         // genuine error
@@ -1355,7 +1380,6 @@ void *driver_fopen(const char *filename, char mode) {
       GetLogger()->error("Error while opening append stream");
       return (nullptr);
     }
-    if (RegisterFileStream(&GetState()->open_file_streams, static_cast<void *>(writerPtr), FileStreamMode::APPEND)) return nullptr;
 
     writerPtr->append_target_ = head_outcome.GetResult().GetVersionId();
 
@@ -1378,12 +1402,21 @@ void *driver_fopen(const char *filename, char mode) {
 }
 
 int driver_fclose(void *stream) {
-  if (Check_driver_fclose(stream)) return kFailure;
+  if (kFalse == bIsConnected) {
+    GetLogger()->error(ERR_NOT_CONNECTED);
+    return (kFailure);
+  };
+
+  if (!(stream)) {
+    GetLogger()->error(ERR_NULL_ARG, __func__);
+    return (kFailure);
+  };
+
+  GetLogger()->debug("fclose {}", (void *)stream);
 
   auto reader_handle_it = FindHandle((active_reader_handles), (stream));
   if (reader_handle_it != (active_reader_handles).end()) {
     EraseRemove((active_reader_handles), reader_handle_it);
-    if (UnregisterFileStream(&GetState()->open_file_streams, stream)) return kFailure;
     return kSuccess;
   };
 
@@ -1411,7 +1444,6 @@ int driver_fclose(void *stream) {
     }
 
     EraseRemove(active_writer_handles, writer_h_it);
-    if (UnregisterFileStream(&GetState()->open_file_streams, stream)) return kFailure;
 
     return kSuccess;
   }
@@ -1421,9 +1453,17 @@ int driver_fclose(void *stream) {
 }
 
 int driver_fseek(void *stream, long long int offset, int whence) {
-  if (Check_driver_fseek(stream, offset, whence)) return kFailure;
+  if (kFalse == bIsConnected) {
+    GetLogger()->error(ERR_NOT_CONNECTED);
+    return (kFailure);
+  };
 
   constexpr long long max_val = std::numeric_limits<long long>::max();
+
+  if (!(stream)) {
+    GetLogger()->error(ERR_NULL_ARG, __func__);
+    return (kFailure);
+  };
 
   // confirm stream's presence
   auto stream_it = FindHandle((active_reader_handles), (stream));
@@ -1433,6 +1473,8 @@ int driver_fseek(void *stream, long long int offset, int whence) {
   }
   auto &h_ptr = *stream_it;
   auto &h = *h_ptr;
+
+  GetLogger()->debug("fseek {} {} {}", stream, offset, whence);
 
   tOffset computed_offset{0};
 
@@ -1478,19 +1520,33 @@ int driver_fseek(void *stream, long long int offset, int whence) {
 }
 
 const char *driver_getlasterror() {
-  if (Check_driver_getlasterror()) return "Error while trying to fetch last error.";
+  GetLogger()->debug("getlasterror");
   static std::string last_error;
   last_error = GetLastError();
   return last_error.empty() ? nullptr : last_error.c_str();
 }
 
 long long int driver_fread(void *ptr, size_t size, size_t count, void *stream) {
-  if (Check_driver_fread(ptr, size, count, stream)) return kFailure;
+  if (kFalse == bIsConnected) {
+    GetLogger()->error(ERR_NOT_CONNECTED);
+    return (kFailure);
+  };
+
+  if (!(stream)) {
+    GetLogger()->error(ERR_NULL_ARG, __func__);
+    return (kFailure);
+  };
+  if (!(ptr)) {
+    GetLogger()->error(ERR_NULL_ARG, __func__);
+    return (kFailure);
+  };
 
   if (0 == size) {
     GetLogger()->error("Error passing size of 0");
     return kFailure;
   }
+
+  GetLogger()->debug("fread {} {} {} {}", ptr, size, count, stream);
 
   // confirm stream's presence
   auto stream_it = FindHandle((active_reader_handles), (stream));
@@ -1535,12 +1591,26 @@ long long int driver_fread(void *ptr, size_t size, size_t count, void *stream) {
 
 long long int driver_fwrite(const void *ptr, size_t size, size_t count,
                             void *stream) {
-  if (Check_driver_fwrite(ptr, size, count, stream)) return kFailure;
+  if (kFalse == bIsConnected) {
+    GetLogger()->error(ERR_NOT_CONNECTED);
+    return (kFailure);
+  };
+
+  if (!(stream)) {
+    GetLogger()->error(ERR_NULL_ARG, __func__);
+    return (kFailure);
+  };
+  if (!(ptr)) {
+    GetLogger()->error(ERR_NULL_ARG, __func__);
+    return (kFailure);
+  };
 
   if (0 == size) {
     GetLogger()->error("Error passing size 0 to fwrite");
     return kFailure;
   }
+
+  GetLogger()->debug("fwrite {} {} {} {}", ptr, size, count, stream);
 
   auto stream_it = FindHandle((active_writer_handles), (stream));
   if (stream_it == active_writer_handles.end()) {
@@ -1613,18 +1683,33 @@ long long int driver_fwrite(const void *ptr, size_t size, size_t count,
   return static_cast<long long>(to_write);
 }
 
-int driver_fflush(void *stream) {
-  if (Check_driver_fflush(stream)) return kFailure;
+int driver_fflush(void *) {
+  if (kFalse == bIsConnected) {
+    GetLogger()->error(ERR_NOT_CONNECTED);
+    return (kFailure);
+  };
+
+  GetLogger()->debug("Flushing (does nothing...)");
   return kSuccess;
 }
 
 int driver_remove(const char *filename) {
-  if (Check_driver_remove(filename)) return kFalse;
+  if (kFalse == bIsConnected) {
+    GetLogger()->error(ERR_NOT_CONNECTED);
+    return (kFalse);
+  };
+
+  if (!(filename)) {
+    GetLogger()->error(ERR_NULL_ARG, __func__);
+    return (kFalse);
+  };
+
+  GetLogger()->debug("remove {}", filename);
 
   ParseUriResult names;
   if (ParseS3Uri(&names, (filename))) {
     GetLogger()->error(ERR_URL_PARSING);
-    return (((kFalse)));
+    return (((kOtherFailure)));
   }
 
   Aws::S3::Model::DeleteObjectRequest request;
@@ -1643,23 +1728,59 @@ int driver_remove(const char *filename) {
 }
 
 int driver_rmdir(const char *filename) {
-  if (Check_driver_rmdir(filename)) return kOtherFailure;
+  if (kFalse == bIsConnected) {
+    GetLogger()->error(ERR_NOT_CONNECTED);
+    return (kOtherFailure);
+  };
+
+  if (!(filename)) {
+    GetLogger()->error(ERR_NULL_ARG, __func__);
+    return (kOtherFailure);
+  };
+  GetLogger()->debug("rmdir {}", filename);
+
+  GetLogger()->debug("Remove dir (does nothing...)");
   return kOtherSuccess;
 }
 
 int driver_mkdir(const char *filename) {
-  if (Check_driver_mkdir(filename)) return kOtherFailure;
+  if (kFalse == bIsConnected) {
+    GetLogger()->error(ERR_NOT_CONNECTED);
+    return (kOtherFailure);
+  };
+
+  if (!(filename)) {
+    GetLogger()->error(ERR_NULL_ARG, __func__);
+    return (kOtherFailure);
+  };
+  GetLogger()->debug("mkdir {}", filename);
+
   return kOtherSuccess;
 }
 
 long long int driver_diskFreeSpace(const char *filename) {
-  if (Check_driver_diskFreeSpace(filename)) return kFailure;
+  GetLogger()->debug("diskFreeSpace {}", filename);
+
   return (long long int)5 * 1024 * 1024 * 1024 * 1024;
 }
 
 int driver_copyToLocal(const char *sSourceFilePathName,
                        const char *sDestFilePathName) {
-  if (Check_driver_copyToLocal(sSourceFilePathName, sDestFilePathName)) return kOtherFailure;
+  if (kFalse == bIsConnected) {
+    GetLogger()->error(ERR_NOT_CONNECTED);
+    return (kOtherFailure);
+  };
+  if (!(sSourceFilePathName)) {
+    GetLogger()->error(ERR_NULL_ARG, __func__);
+    return (kOtherFailure);
+  };
+  if (!(sDestFilePathName)) {
+    GetLogger()->error(ERR_NULL_ARG, __func__);
+    return (kOtherFailure);
+  };
+
+  GetLogger()->debug("copyToLocal {} {}", sSourceFilePathName,
+                     sDestFilePathName);
 
   // try opening the online source file
   ParseUriResult names;
@@ -1761,7 +1882,22 @@ int driver_copyToLocal(const char *sSourceFilePathName,
 
 int driver_copyFromLocal(const char *sSourceFilePathName,
                          const char *sDestFilePathName) {
-  if (Check_driver_copyFromLocal(sSourceFilePathName, sDestFilePathName)) return kOtherFailure;
+  if (kFalse == bIsConnected) {
+    GetLogger()->error(ERR_NOT_CONNECTED);
+    return (kFailure);
+  };
+
+  if (!(sSourceFilePathName)) {
+    GetLogger()->error(ERR_NULL_ARG, __func__);
+    return (kOtherFailure);
+  };
+  if (!(sDestFilePathName)) {
+    GetLogger()->error(ERR_NULL_ARG, __func__);
+    return (kOtherFailure);
+  };
+
+  GetLogger()->debug("copyFromLocal {} {}", sSourceFilePathName,
+                     sDestFilePathName);
 
   ParseUriResult names;
   if (ParseS3Uri(&names, (sDestFilePathName))) {
@@ -1813,8 +1949,23 @@ int driver_copyFromLocal(const char *sSourceFilePathName,
  */
 int driver_concat(const char *destfilename, const char **sourcefilenames,
                   size_t sourcefilecount) {
-  if (Check_driver_concat(destfilename, sourcefilenames, sourcefilecount)) return kOtherFailure;
-  
+  if (kFalse == bIsConnected) {
+    GetLogger()->error(ERR_NOT_CONNECTED);
+    return (kOtherFailure);
+  };
+  if (!(destfilename)) {
+    GetLogger()->error(ERR_NULL_ARG, __func__);
+    return (kOtherFailure);
+  };
+  if (!(sourcefilenames)) {
+    GetLogger()->error(ERR_NULL_ARG, __func__);
+    return (kOtherFailure);
+  };
+
+  if (sourcefilecount == 0) {
+    GetLogger()->error("driver_concat: no source files");
+    return kOtherFailure;
+  }
   ParseUriResult names;
   if (ParseS3Uri(&names, (destfilename))) {
     GetLogger()->error(ERR_URL_PARSING);
@@ -1852,6 +2003,10 @@ int driver_concat(const char *destfilename, const char **sourcefilenames,
   std::set<Aws::String> sources_to_delete;
 
   for (size_t i = 0; i < sourcefilecount; ++i) {
+    if (!(sourcefilenames[i])) {
+      GetLogger()->error(ERR_NULL_ARG, __func__);
+      return (kOtherFailure);
+    };
     ParseUriResult s;
     if (ParseS3Uri(&s, sourcefilenames[i])) {
       GetLogger()->error("Error parsing source URI");
