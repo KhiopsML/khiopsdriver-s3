@@ -267,11 +267,6 @@ int ReadBytesInFile(long long *size, MultiPartFile &multifile,
   const tOffset total_size = cumul_sizes.back();
 
   if (offset >= total_size) {
-    if (CheckEtagOnly(multifile, cumul_sizes.size() - 1)) {
-      GetLogger()->error("The file has been updated while reading it.");
-      return -1;
-    }
-
     if (to_read == 0) {
       *size = 0LL;
       return 0;
