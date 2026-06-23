@@ -156,6 +156,47 @@ struct ParseUriResult {
 
 using ObjectsVec = Aws::Vector<S3Object>;
 
+// Parse globbing pattern "prefix*suffix"
+// Constraints:
+// - exactly one '*'
+// - prefix not empty
+// - prefix last char must not be digit
+// - suffix first char (if any) must not be digit
+bool parse_globbing_pattern(const std::string &pattern,
+                                  std::string *prefix,
+                                  std::string *suffix) {
+  const std::size_t star_pos = pattern.find('*');
+  if (star_pos == std::string::npos) {
+    return false;
+  }
+  if (pattern.find('*', star_pos + 1) != std::string::npos) {
+    return false;
+  }
+
+  *prefix = pattern.substr(0, star_pos);
+  *suffix = pattern.substr(star_pos + 1);
+
+  if (prefix->empty()) {
+    return false;
+  }
+
+  {
+    const unsigned char c = static_cast<unsigned char>((*prefix)[prefix->size() - 1]);
+    if (std::isdigit(c)) {
+      return false;
+    }
+  }
+
+  if (!suffix->empty()) {
+    const unsigned char c = static_cast<unsigned char>((*suffix)[0]);
+    if (std::isdigit(c)) {
+      return false;
+    }
+  }
+
+  return true;
+};
+
 // Definition of helper functions
 Aws::String MakeByteRange(int64_t start, int64_t end) {
   Aws::StringStream range;
@@ -1703,25 +1744,60 @@ int driver_remove(const char *filename) {
 
   GetLogger()->debug("remove {}", filename);
 
-  ParseUriResult names;
-  if (ParseS3Uri(&names, (filename))) {
-    GetLogger()->error(ERR_URL_PARSING);
-    return (((kOtherFailure)));
+  std::string filename_as_string(filename);
+  std::string prefix, suffix;
+  if (filename_as_string.find('*') != std::string::npos) {
+    if (!parse_globbing_pattern(std::string(filename_as_string), &prefix, &suffix)) {
+      GetLogger()->error("Invalid globbing pattern");
+      return kOtherFailure;
+    }
+    ParseUriResult names;
+    if (ParseS3Uri(&names, (prefix.c_str()))) {
+      GetLogger()->error(ERR_URL_PARSING);
+      return (((kOtherFailure)));
+    }
+    size_t first_globchar_pos;
+    IsMultifile(names.bucket_, first_globchar_pos);
+    ObjectsVec file_list;
+    if (FilterList(&file_list, names.bucket_, names.object_ + "*" + suffix, first_globchar_pos)) {
+      GetLogger()->error("Failed to list glob-matching objects.");
+      return kOtherFailure;
+    };
+    Aws::S3::Model::DeleteObjectRequest request;
+    request.WithBucket(names.bucket_);
+    bool is_success = true;
+    for (const S3Object &object_to_delete : file_list) {
+      request.WithKey(object_to_delete.GetKey());
+      Aws::S3::Model::DeleteObjectOutcome outcome = client->DeleteObject(request);
+      if (!outcome.IsSuccess()) {
+        is_success = false;
+        auto err = outcome.GetError();
+        GetLogger()->error("DeleteObject: {} {}", err.GetExceptionName(),
+                          err.GetMessage());
+      }
+    }
+    return is_success;
+  } else {
+    ParseUriResult names;
+    if (ParseS3Uri(&names, (filename))) {
+      GetLogger()->error(ERR_URL_PARSING);
+      return (((kOtherFailure)));
+    }
+
+    Aws::S3::Model::DeleteObjectRequest request;
+
+    request.WithBucket(names.bucket_).WithKey(names.object_);
+
+    Aws::S3::Model::DeleteObjectOutcome outcome = client->DeleteObject(request);
+
+    if (!outcome.IsSuccess()) {
+      auto err = outcome.GetError();
+      GetLogger()->error("DeleteObject: {} {}", err.GetExceptionName(),
+                        err.GetMessage());
+    }
+
+    return outcome.IsSuccess();
   }
-
-  Aws::S3::Model::DeleteObjectRequest request;
-
-  request.WithBucket(names.bucket_).WithKey(names.object_);
-
-  Aws::S3::Model::DeleteObjectOutcome outcome = client->DeleteObject(request);
-
-  if (!outcome.IsSuccess()) {
-    auto err = outcome.GetError();
-    GetLogger()->error("DeleteObject: {} {}", err.GetExceptionName(),
-                       err.GetMessage());
-  }
-
-  return outcome.IsSuccess();
 }
 
 int driver_rmdir(const char *filename) {
@@ -2490,47 +2566,6 @@ int driver_composeMultifile(const char *sDestFilePathName,
     if (!s.empty() && s[0] == '/') {
       return false;
     }
-    return true;
-  };
-
-  // Parse globbing pattern "prefix*suffix"
-  // Constraints:
-  // - exactly one '*'
-  // - prefix not empty
-  // - prefix last char must not be digit
-  // - suffix first char (if any) must not be digit
-  auto parse_globbing_pattern = [](const std::string &pattern,
-                                   std::string *prefix,
-                                   std::string *suffix) -> bool {
-    const std::size_t star_pos = pattern.find('*');
-    if (star_pos == std::string::npos) {
-      return false;
-    }
-    if (pattern.find('*', star_pos + 1) != std::string::npos) {
-      return false;
-    }
-
-    *prefix = pattern.substr(0, star_pos);
-    *suffix = pattern.substr(star_pos + 1);
-
-    if (prefix->empty()) {
-      return false;
-    }
-
-    {
-      const unsigned char c = static_cast<unsigned char>((*prefix)[prefix->size() - 1]);
-      if (std::isdigit(c)) {
-        return false;
-      }
-    }
-
-    if (!suffix->empty()) {
-      const unsigned char c = static_cast<unsigned char>((*suffix)[0]);
-      if (std::isdigit(c)) {
-        return false;
-      }
-    }
-
     return true;
   };
 
