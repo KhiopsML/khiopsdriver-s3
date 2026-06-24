@@ -191,7 +191,7 @@ kSuccess);
 TEST(S3DriverTest, FileExists) {
   ASSERT_EQ(driver_connect(), kOtherSuccess);
   ASSERT_EQ(
-      driver_exist(
+      driver_fileExists(
           "s3://diod-data-di-jupyterhub/khiops_data/samples/Adult/Adult.txt"),
       kOtherSuccess);
   ASSERT_EQ(driver_disconnect(), kOtherSuccess);
@@ -200,7 +200,7 @@ TEST(S3DriverTest, FileExists) {
 TEST(S3DriverTest, DirExists) {
   ASSERT_EQ(driver_connect(), kOtherSuccess);
   ASSERT_EQ(
-      driver_exist("s3://diod-data-di-jupyterhub/khiops_data/samples/Adult/"),
+      driver_dirExists("s3://diod-data-di-jupyterhub/khiops_data/samples/Adult/"),
       kOtherSuccess);
   ASSERT_EQ(driver_disconnect(), kOtherSuccess);
 }
