@@ -79,10 +79,6 @@ VISIBLE long long int driver_getSystemPreferredBufferSize();
 // implemented
 
 // Returns 1 if the file exists, 0 otherwise
-// DEPRECATED see driver_FileExists and driver_DirExists
-VISIBLE int driver_exist(const char *filename);
-
-// Returns 1 if the file exists, 0 otherwise
 VISIBLE int driver_fileExists(const char *sFilePathName);
 
 // Returns 1 if the directory exists, 0 otherwise

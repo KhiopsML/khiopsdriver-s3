@@ -760,37 +760,6 @@ long long int driver_getSystemPreferredBufferSize() {
   return buff_size; // 4 Mo
 }
 
-int driver_exist(const char *filename) {
-  if (kFalse == bIsConnected) {
-    GetLogger()->error(ERR_NOT_CONNECTED);
-    return (kFalse);
-  };
-
-  if (!filename) {
-    GetLogger()->error(ERR_NULL_ARG, __func__);
-    return kFalse;
-  }
-
-  const size_t size = std::strlen(filename);
-  if (0 == size) {
-    GetLogger()->error("Error passing an empty name to driver_exist");
-    return kFalse;
-  }
-
-  GetLogger()->debug("exist {}", filename);
-
-  // const std::string file_uri = filename;
-  // GetLogger()->debug("exist file_uri {}", file_uri);
-  const char last_char = filename[std::strlen(filename) - 1];
-  GetLogger()->debug("exist last char {}", last_char);
-
-  if (last_char == '/') {
-    return driver_dirExists(filename);
-  } else {
-    return driver_fileExists(filename);
-  }
-}
-
 int driver_fileExists(const char *sFilePathName) {
   if (kFalse == bIsConnected) {
     GetLogger()->error(ERR_NOT_CONNECTED);
