@@ -483,6 +483,7 @@ Aws::S3::Model::ListObjectsV2Outcome ListObjects(const Aws::String &bucket,
 // a well defined prefix contained in the pattern
 int FilterList(ObjectsVec *result, const Aws::String &bucket,
                const Aws::String &pattern, size_t pattern_1st_sp_char_pos) {
+  GetLogger()->trace("FilterList(): bucket={}, pattern={}, pattern_1st_sp_char_pos={}", bucket, pattern, pattern_1st_sp_char_pos);
   ObjectsVec res;
 
   Aws::S3::Model::ListObjectsV2Request request;
@@ -1723,7 +1724,7 @@ int driver_remove(const char *filename) {
       return (((kOtherFailure)));
     }
     size_t first_globchar_pos;
-    IsMultifile(names.bucket_, first_globchar_pos);
+    IsMultifile(names.object_ + "*" + suffix, first_globchar_pos);
     ObjectsVec file_list;
     if (FilterList(&file_list, names.bucket_, names.object_ + "*" + suffix, first_globchar_pos)) {
       GetLogger()->error("Failed to list glob-matching objects.");
