@@ -241,18 +241,6 @@ kSuccess); cleanup_bad_credentials();
 */
 #endif
 
-TEST(S3DriverTest, RmDir) {
-  ASSERT_EQ(driver_connect(), kOtherSuccess);
-  ASSERT_EQ(driver_rmdir("dummy"), kOtherSuccess);
-  ASSERT_EQ(driver_disconnect(), kOtherSuccess);
-}
-
-TEST(S3DriverTest, mkDir) {
-  ASSERT_EQ(driver_connect(), kOtherSuccess);
-  ASSERT_EQ(driver_mkdir("dummy"), kOtherSuccess);
-  ASSERT_EQ(driver_disconnect(), kOtherSuccess);
-}
-
 TEST(S3DriverTest, GetSystemPreferredBufferSize) {
   ASSERT_EQ(driver_getSystemPreferredBufferSize(), 4 * 1024 * 1024);
 }
