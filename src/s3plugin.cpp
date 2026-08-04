@@ -478,6 +478,59 @@ Aws::S3::Model::ListObjectsV2Outcome ListObjects(const Aws::String &bucket,
   return client->ListObjectsV2(request);
 }
 
+bool BlobDirectoryExists(const Aws::String &bucket, const Aws::String &object) {
+  const auto head_object_outcome = HeadObject(bucket, object);
+  if (head_object_outcome.IsSuccess()) {
+    return true;
+  }
+
+  if (head_object_outcome.GetError().GetErrorType() !=
+      Aws::S3::S3Errors::RESOURCE_NOT_FOUND) {
+    GetLogger()->error("Failed retrieving directory info in dirExists: {}",
+                       head_object_outcome.GetError().GetMessage());
+    return false;
+  }
+
+  auto list_outcome = ListObjects(bucket, object);
+  if (!list_outcome.IsSuccess()) {
+    GetLogger()->error("Failed listing directory info in dirExists: {}",
+                       list_outcome.GetError().GetMessage());
+    return false;
+  }
+
+  return !list_outcome.GetResult().GetContents().empty();
+}
+
+bool CreateBlobDirectory(const Aws::String &bucket, const Aws::String &object) {
+  Aws::S3::Model::PutObjectRequest request;
+  request.WithBucket(bucket).WithKey(object);
+  auto empty_body = Aws::MakeShared<Aws::StringStream>(KHIOPS_S3);
+  request.SetBody(empty_body);
+
+  const auto outcome = client->PutObject(request);
+  if (!outcome.IsSuccess()) {
+    const auto &err = outcome.GetError();
+    GetLogger()->error("PutObject: {} {}", err.GetExceptionName(),
+                       err.GetMessage());
+  }
+
+  return outcome.IsSuccess();
+}
+
+bool DeleteBlobDirectory(const Aws::String &bucket, const Aws::String &object) {
+  Aws::S3::Model::DeleteObjectRequest request;
+  request.WithBucket(bucket).WithKey(object);
+
+  const auto outcome = client->DeleteObject(request);
+  if (!outcome.IsSuccess()) {
+    const auto &err = outcome.GetError();
+    GetLogger()->error("DeleteObject: {} {}", err.GetExceptionName(),
+                       err.GetMessage());
+  }
+
+  return outcome.IsSuccess();
+}
+
 // Get from a bucket a list of objects matching a name pattern.
 // To get a limited list of objects to filter per request, the request includes
 // a well defined prefix contained in the pattern
@@ -821,7 +874,14 @@ int driver_dirExists(const char *sFilePathName) {
 
   GetLogger()->debug("dirExist {}", sFilePathName);
 
-  return kTrue;
+  ParseUriResult names;
+  if (ParseS3Uri(&names, sFilePathName)) {
+    GetLogger()->error(ERR_URL_PARSING);
+    return kFalse;
+  }
+
+  return BlobDirectoryExists(names.bucket_, names.object_) ? kTrue : kFalse;
+
 }
 
 int GetOneFileSize(long long *size, const Aws::String &bucket,
@@ -1779,8 +1839,14 @@ int driver_rmdir(const char *filename) {
   };
   GetLogger()->debug("rmdir {}", filename);
 
-  GetLogger()->debug("Remove dir (does nothing...)");
-  return kOtherSuccess;
+  ParseUriResult names;
+  if (ParseS3Uri(&names, filename)) {
+    GetLogger()->error(ERR_URL_PARSING);
+    return kOtherFailure;
+  }
+
+  return DeleteBlobDirectory(names.bucket_, names.object_) ? kOtherSuccess
+                                                           : kOtherFailure;
 }
 
 int driver_mkdir(const char *filename) {
@@ -1795,7 +1861,14 @@ int driver_mkdir(const char *filename) {
   };
   GetLogger()->debug("mkdir {}", filename);
 
-  return kOtherSuccess;
+  ParseUriResult names;
+  if (ParseS3Uri(&names, filename)) {
+    GetLogger()->error(ERR_URL_PARSING);
+    return kOtherFailure;
+  }
+
+  return CreateBlobDirectory(names.bucket_, names.object_) ? kOtherSuccess
+                                                           : kOtherFailure;
 }
 
 long long int driver_diskFreeSpace(const char *filename) {
