@@ -518,17 +518,44 @@ bool CreateBlobDirectory(const Aws::String &bucket, const Aws::String &object) {
 }
 
 bool DeleteBlobDirectory(const Aws::String &bucket, const Aws::String &object) {
-  Aws::S3::Model::DeleteObjectRequest request;
-  request.WithBucket(bucket).WithKey(object);
+  Aws::S3::Model::ListObjectsV2Request request;
+  request.WithBucket(bucket).WithPrefix(object).WithDelimiter("");
 
-  const auto outcome = client->DeleteObject(request);
-  if (!outcome.IsSuccess()) {
-    const auto &err = outcome.GetError();
-    GetLogger()->error("DeleteObject: {} {}", err.GetExceptionName(),
-                       err.GetMessage());
-  }
+  Aws::String continuation_token;
+  bool is_success = true;
 
-  return outcome.IsSuccess();
+  do {
+    if (!continuation_token.empty()) {
+      request.SetContinuationToken(continuation_token);
+    }
+
+    const auto outcome = client->ListObjectsV2(request);
+    if (!outcome.IsSuccess()) {
+      GetLogger()->error("Failed listing directory contents for rmdir: {}",
+                         outcome.GetError().GetMessage());
+      return false;
+    }
+
+    const auto &list_result = outcome.GetResult();
+    const auto &objects = list_result.GetContents();
+
+    Aws::S3::Model::DeleteObjectRequest delete_request;
+    delete_request.WithBucket(bucket);
+    for (const S3Object &object_to_delete : objects) {
+      delete_request.WithKey(object_to_delete.GetKey());
+      const auto delete_outcome = client->DeleteObject(delete_request);
+      if (!delete_outcome.IsSuccess()) {
+        is_success = false;
+        const auto &err = delete_outcome.GetError();
+        GetLogger()->error("DeleteObject: {} {}", err.GetExceptionName(),
+                           err.GetMessage());
+      }
+    }
+
+    continuation_token = list_result.GetContinuationToken();
+  } while (!continuation_token.empty());
+
+  return is_success;
 }
 
 // Get from a bucket a list of objects matching a name pattern.
