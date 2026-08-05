@@ -1624,6 +1624,10 @@ long long int driver_fread(void *ptr, size_t size, size_t count, void *stream) {
     return (kFailure);
   };
 
+  if (0 == size || 0 == count) {
+    return 0LL;
+  }
+
   if (!(stream)) {
     GetLogger()->error(ERR_NULL_ARG, __func__);
     return (kFailure);
@@ -1632,11 +1636,6 @@ long long int driver_fread(void *ptr, size_t size, size_t count, void *stream) {
     GetLogger()->error(ERR_NULL_ARG, __func__);
     return (kFailure);
   };
-
-  if (0 == size) {
-    GetLogger()->error("Error passing size of 0");
-    return kFailure;
-  }
 
   GetLogger()->debug("fread {} {} {} {}", ptr, size, count, stream);
 
@@ -1650,11 +1649,6 @@ long long int driver_fread(void *ptr, size_t size, size_t count, void *stream) {
   auto &h = *h_ptr;
 
   const tOffset offset = h.offset_;
-
-  // fast exit for 0 read
-  if (0 == count) {
-    return 0LL;
-  }
 
   // prevent overflow
   if (WillSizeCountProductOverflow(size, count)) {
@@ -1678,7 +1672,7 @@ long long int driver_fread(void *ptr, size_t size, size_t count, void *stream) {
     return (kFailure);
   }
 
-  return result;
+  return static_cast<long long>(result / static_cast<long long>(size));
 }
 
 long long int driver_fwrite(const void *ptr, size_t size, size_t count,
@@ -1687,6 +1681,10 @@ long long int driver_fwrite(const void *ptr, size_t size, size_t count,
     GetLogger()->error(ERR_NOT_CONNECTED);
     return (kFailure);
   };
+
+  if (0 == size || 0 == count) {
+    return 0LL;
+  }
 
   if (!(stream)) {
     GetLogger()->error(ERR_NULL_ARG, __func__);
@@ -1697,11 +1695,6 @@ long long int driver_fwrite(const void *ptr, size_t size, size_t count,
     return (kFailure);
   };
 
-  if (0 == size) {
-    GetLogger()->error("Error passing size 0 to fwrite");
-    return kFailure;
-  }
-
   GetLogger()->debug("fwrite {} {} {} {}", ptr, size, count, stream);
 
   auto stream_it = FindHandle((active_writer_handles), (stream));
@@ -1710,11 +1703,6 @@ long long int driver_fwrite(const void *ptr, size_t size, size_t count,
     return (kFailure);
   }
   auto &h_ptr = *stream_it;
-
-  // fast exit for 0
-  if (0 == count) {
-    return 0LL;
-  }
 
   // prevent integer overflow
   if (WillSizeCountProductOverflow(size, count)) {
@@ -1772,7 +1760,7 @@ long long int driver_fwrite(const void *ptr, size_t size, size_t count,
   // release unused memory
   buffer.shrink_to_fit();
 
-  return static_cast<long long>(to_write);
+  return static_cast<long long>(count);
 }
 
 int driver_fflush(void *) {
