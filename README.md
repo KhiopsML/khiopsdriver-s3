@@ -1,4 +1,6 @@
-# Khiops driver for AWS S3
+# [DEPRECATED] Khiops driver for AWS S3
+
+__This repo is deprecated: see the new repo unifying all Khiops cloud storage drivers at: <https://github.com/KhiopsML/khiops-drivers>.__
 
 This repository hosts the source code for the Khiops filesystem driver enabling transparent manipulation for data stored in AWS S3 buckets.
 
